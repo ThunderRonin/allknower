@@ -4,7 +4,7 @@ exact = false
 
 [install.cache]
 # Cache directory — use $HOME; bun does not expand ~ in bunfig strings
-dir = "$HOME/.bun/install/cache"
+dir = "/Users/allmaker/.bun/install/cache"
 
 [run]
 # Bun shell

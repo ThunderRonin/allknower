@@ -1,0 +1,31 @@
+diff --git a/package.json b/package.json
+index c3949a160ad277ccf3d8e6c964ee40e956e96464..15177e8235619219650d3b66bb0cb9b55715a5c4 100644
+--- a/package.json
++++ b/package.json
+@@ -23,15 +23,20 @@
+     "typescript",
+     "bun"
+   ],
+-  "main": "dist/index.js",
+-  "module": "dist/index.js",
+-  "types": "dist/index.d.ts",
++  "main": "dist/index.cjs",
++  "module": "dist/index.mjs",
++  "types": "dist/index.d.mts",
+   "exports": {
+     "./package.json": "./package.json",
+     ".": {
+-      "import": "./dist/index.js",
+-      "require": "./dist/index.js",
+-      "types": "./dist/index.d.ts"
++      "import": {
++        "types": "./dist/index.d.mts",
++        "default": "./dist/index.mjs"
++      },
++      "require": {
++        "types": "./dist/index.d.cts",
++        "default": "./dist/index.cjs"
++      }
+     }
+   },
+   "files": [

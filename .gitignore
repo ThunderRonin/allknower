@@ -17,10 +17,6 @@ data/
 logs/
 *.log
 
-# Bun artifacts that may land in wrong places
-\~/
-\$HOME/
-
 # OS
 .DS_Store
 Thumbs.db
