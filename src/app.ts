@@ -56,25 +56,6 @@ export const app = new Elysia()
         detail: { hide: true },
     })
 
-    // ── Auth Config ───────────────────────────────────────────────────────────
-    .get("/api/auth/config", () => ({
-        portalSyncWhitelist: env.PORTAL_SYNC_WHITELIST.split(",").map((o: string) => o.trim()),
-    }), {
-        detail: { 
-            tags: ["System"],
-            summary: "Get public auth configuration",
-            description: "Exposes non-sensitive auth configuration like portal sync whitelists." 
-        },
-    })
-
-    // ── Auth pages ───────────────────────────────────────────────────────────
-    .get("/register", () => Bun.file("src/auth.html"), {
-        detail: { hide: true },
-    })
-    .get("/login", () => Bun.file("src/auth.html"), {
-        detail: { hide: true },
-    })
-
     // ── Routes ────────────────────────────────────────────────────────────────
     .use(healthRoute)
     .use(brainDumpRoute)
