@@ -33,19 +33,19 @@ POST /suggest/relationships/apply
 
 ### Implementation Steps
 
-- [ ] **1a.** Add `createRelation` helper to `src/etapi/client.ts` — wraps `createAttribute` with `type: "relation"` and applies a naming convention (e.g. `relAlly`, `relEnemy`, `relFamily`, `relLocation`, `relEvent`, `relFaction`, `relOther`). Also writes the description as a `#relationNote` label on the source note for context.
+- [x] **1a.** Add `createRelation` helper to `src/etapi/client.ts` — wraps `createAttribute` with `type: "relation"` and applies a naming convention (e.g. `relAlly`, `relEnemy`, `relFamily`, `relLocation`, `relEvent`, `relFaction`, `relOther`). Also writes the description as a `#relationNote` label on the source note for context.
 
-- [ ] **1b.** Create `POST /suggest/relationships/apply` in `src/routes/suggest.ts`:
+- [x] **1b.** Create `POST /suggest/relationships/apply` in `src/routes/suggest.ts`:
   1. Validate body (sourceNoteId + array of relations)
   2. For each relation, call `createRelation(sourceNoteId, targetNoteId, relationshipType)` via ETAPI
   3. Optionally create the inverse relation on the target note (e.g. if A is `relAlly` of B, then B gets `relAlly` of A). Bidirectional by default, controlled by a `bidirectional: boolean` body param (default `true`)
   4. Return `{ applied: [...], failed: [...] }`
 
-- [ ] **1c.** Add Zod validation schemas to `src/types/lore.ts`:
+- [x] **1c.** Add Zod validation schemas to `src/types/lore.ts`:
   - `RelationshipTypeSchema` — enum of `ally | enemy | family | location | event | faction | other`
   - `ApplyRelationBodySchema` — the request body shape
 
-- [ ] **1d.** Add a `relation_history` table to Prisma schema to log applied relations (sourceNoteId, targetNoteId, type, description, createdAt). This enables undo and audit.
+- [x] **1d.** Add a `relation_history` table to Prisma schema to log applied relations (sourceNoteId, targetNoteId, type, description, createdAt). This enables undo and audit.
 
 ### Files Touched
 
@@ -66,14 +66,14 @@ POST /suggest/relationships/apply
 
 ### Implementation Steps
 
-- [ ] **2a.** Extract the relationship suggestion logic from the route handler into a standalone function in a new file `src/pipeline/relations.ts`:
+- [x] **2a.** Extract the relationship suggestion logic from the route handler into a standalone function in a new file `src/pipeline/relations.ts`:
   ```ts
   async function suggestRelationsForNote(noteId: string, noteContent: string): Promise<Suggestion[]>
   ```
 
-- [ ] **2b.** Add a `applyRelations(sourceNoteId: string, relations: Suggestion[])` function in the same file that calls the ETAPI `createRelation` helper from Feature 1.
+- [x] **2b.** Add a `applyRelations(sourceNoteId: string, relations: Suggestion[])` function in the same file that calls the ETAPI `createRelation` helper from Feature 1.
 
-- [ ] **2c.** Modify the brain dump pipeline (`src/pipeline/brain-dump.ts`):
+- [x] **2c.** Modify the brain dump pipeline (`src/pipeline/brain-dump.ts`):
   - After the note creation loop finishes, for each newly created note:
     1. Call `suggestRelationsForNote(noteId, content)`
     2. Filter suggestions to only high-confidence ones (LLM returns a `confidence` field — add this to the prompt)
@@ -81,11 +81,11 @@ POST /suggest/relationships/apply
   - Wrap in try/catch so a relation failure never breaks the brain dump
   - Add the applied relations to the `BrainDumpResult` response (new `relations` field)
 
-- [ ] **2d.** Update the relationship suggestion LLM prompt to include a `confidence: "high" | "medium" | "low"` field per suggestion. Only auto-apply `"high"` confidence. Medium/low are returned to the user for manual review.
+- [x] **2d.** Update the relationship suggestion LLM prompt to include a `confidence: "high" | "medium" | "low"` field per suggestion. Only auto-apply `"high"` confidence. Medium/low are returned to the user for manual review.
 
-- [ ] **2e.** Add an `autoRelate: boolean` field to the brain dump request body (default `true`). Lets the user opt out of auto-relation per request.
+- [x] **2e.** Add an `autoRelate: boolean` field to the brain dump request body (default `true`). Lets the user opt out of auto-relation per request.
 
-- [ ] **2f.** Add `relations` array to `BrainDumpResultSchema` in `src/types/lore.ts`.
+- [x] **2f.** Add `relations` array to `BrainDumpResultSchema` in `src/types/lore.ts`.
 
 ### Files Touched
 

@@ -26,10 +26,14 @@ Thorough audit of every AI-touching file in the codebase. Items are grouped by l
 **Fix**: The SDK has `openrouter.embeddings.generate()`. Consolidate to one client for all OpenRouter calls — less config surface, shared retry/auth logic.  
 **Impact**: Cleaner code, single auth path. **Effort**: S
 
-### 🟡 1.5 — No Relevance Threshold / Reranking
-**Current**: [queryLore()](file:///home/allmaker/projects/allknower/AllKnower/src/rag/lancedb.ts#73-96) returns top-K results regardless of distance. Low-relevance chunks pollute the context.  
-**Fix**: 1) Add a minimum similarity threshold (e.g., `score > 0.5`). 2) Consider a lightweight cross-encoder reranker (Cohere rerank or an OpenRouter model fine-tuned for reranking) for higher-quality context selection.  
-**Impact**: Sharper LLM context → better output quality. **Effort**: S (threshold) / L (reranker)
+### ✅ 1.5 — Relevance Threshold + Hybrid Reranking (Implemented)
+**Was**: [queryLore()](file:///home/allmaker/projects/allknower/AllKnower/src/rag/lancedb.ts#73-96) returned top-K results regardless of distance. No reranker.  
+**Implemented**: Similarity threshold (`score ≥ 0.3`) + **hybrid auto-dispatch reranker**:
+- Simple queries (≤8 words, no relational connectives) → `Xenova/ms-marco-MiniLM-L-6-v2` cross-encoder (local, fast)
+- Complex queries (>8 words or `how/why/between/affect/relate/...`) → LLM-as-a-Judge via `RERANK_MODEL`  
+
+`classifyQueryComplexity()` heuristic in [lancedb.ts](file:///Users/allmaker/projects/AllKnower/src/rag/lancedb.ts). New env vars: `RERANK_MODEL`, `RERANK_FALLBACK_1/2`.  
+**Impact**: ✅ Completed. **Effort**: L (done)
 
 ### 🟢 1.6 — No Index Staleness Detection
 **Current**: No mechanism to detect when a note was edited in AllCodex but not re-embedded. The `RagIndexMeta.embeddedAt` exists but is never compared to the note's `dateModified`.  
@@ -113,7 +117,7 @@ Thorough audit of every AI-touching file in the codebase. Items are grouped by l
 **Impact**: Security. **Effort**: S
 
 ### 🟡 5.2 — Embedder Has Hardcoded Dimension Count
-**Current**: [embedder.ts:L26](file:///home/allmaker/projects/allknower/AllKnower/src/rag/embedder.ts#L26) — `EMBEDDING_DIMENSIONS = 3072` is hardcoded. Switching models requires a code change + full reindex.  
+**Current**: [embedder.ts:L26](file:///home/allmaker/projects/allknower/AllKnower/src/rag/embedder.ts#L26) — `EMBEDDING_DIMENSIONS = 1536` is hardcoded. Switching models requires a code change + full reindex.  
 **Fix**: Derive dimension from the first embedding response, or look it up from an env var / model config table. Store dimension in `AppConfig` so reindex can auto-detect mismatches.  
 **Impact**: Model flexibility. **Effort**: S
 

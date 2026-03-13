@@ -49,6 +49,10 @@ export const envSchema = z.object({
     AUTOCOMPLETE_FALLBACK_1: z.string().default(""),
     AUTOCOMPLETE_FALLBACK_2: z.string().default(""),
 
+    RERANK_MODEL: z.string().default("openai/gpt-5-nano"),
+    RERANK_FALLBACK_1: z.string().default(""),
+    RERANK_FALLBACK_2: z.string().default(""),
+
     // Embedding Models
     EMBEDDING_CLOUD: z.string().default("google/gemini-embedding-001"),
 

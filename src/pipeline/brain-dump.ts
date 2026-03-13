@@ -13,6 +13,7 @@ import prisma from "../db/client.ts";
 import { env } from "../env.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import type { BrainDumpResult } from "../types/lore.ts";
+import { suggestRelationsForNote, applyRelations } from "./relations.ts";
 
 // The root note ID in AllCodex where new lore entries are placed.
 // This should be the "Lore" root note in the Chronicle.
@@ -27,10 +28,16 @@ const DEFAULT_LORE_ROOT_NOTE_ID = "root";
  * 3. Call LLM via OpenRouter
  * 4. Parse structured JSON response
  * 5. Create/update notes in AllCodex via ETAPI
- * 6. Persist to BrainDumpHistory
- * 7. Return summary + reindexIds to caller (route schedules background reindex)
+ * 6. Auto-relate: suggest + apply high-confidence relationships (if enabled)
+ * 7. Persist to BrainDumpHistory
+ * 8. Return summary + reindexIds to caller (route schedules background reindex)
  */
-export async function runBrainDump(rawText: string): Promise<BrainDumpResult & { reindexIds: string[] }> {
+export async function runBrainDump(
+    rawText: string,
+    options: { autoRelate?: boolean } = {}
+): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
+    const { autoRelate = true } = options;
+
     // Step 1: RAG context retrieval
     const ragContext = await queryLore(rawText, 10);
 
@@ -108,6 +115,37 @@ export async function runBrainDump(rawText: string): Promise<BrainDumpResult & {
         }
     }
 
+    // Step 6: Auto-relate — suggest + apply high-confidence relationships
+    const relationResults: Array<{ noteId: string; applied: number; failed: number }> = [];
+
+    if (autoRelate && created.length > 0) {
+        for (const note of created) {
+            try {
+                // Get the content we just wrote for this note
+                const entity = entities.find(e => e.title === note.title);
+                const content = entity?.content ?? note.title;
+
+                const suggestions = await suggestRelationsForNote(note.noteId, content);
+
+                // Only auto-apply high-confidence suggestions
+                const highConfidence = suggestions.filter(s => s.confidence === "high");
+
+                if (highConfidence.length > 0) {
+                    const { applied, failed } = await applyRelations(note.noteId, highConfidence);
+                    relationResults.push({
+                        noteId: note.noteId,
+                        applied: applied.length,
+                        failed: failed.length,
+                    });
+                }
+            } catch (error) {
+                // Relation failures NEVER break the brain dump
+                console.warn(`[brain-dump] Auto-relate failed for "${note.title}":`, error);
+                relationResults.push({ noteId: note.noteId, applied: 0, failed: 0 });
+            }
+        }
+    }
+
     // Step 7: Persist to history
     await prisma.brainDumpHistory.create({
         data: {
@@ -120,5 +158,13 @@ export async function runBrainDump(rawText: string): Promise<BrainDumpResult & {
         },
     });
 
-    return { summary, created, updated, skipped, reindexIds };
+    return {
+        summary,
+        created,
+        updated,
+        skipped,
+        reindexIds,
+        ...(relationResults.length > 0 ? { relations: relationResults } : {}),
+    };
 }
+

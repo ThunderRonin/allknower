@@ -20,10 +20,10 @@ const openrouterClient = new OpenAI({
     },
 });
 
-// gemini-embedding-001 produces 3072-dim vectors.
+// qwen3-embedding-8b produces 1536-dim vectors.
 // LanceDB table is created with the dimension of the first embedding written —
 // switching models requires a full reindex.
-export const EMBEDDING_DIMENSIONS = 3072;
+export const EMBEDDING_DIMENSIONS = 1536;
 
 /**
  * Embed a single text string.

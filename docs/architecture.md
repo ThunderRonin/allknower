@@ -157,11 +157,11 @@ All LLM and embedding calls go through OpenRouter:
 
 | Task | Model | Purpose |
 |---|---|---|
-| Brain Dump | `x-ai/grok-4.1-fast` | Entity extraction from raw text |
+| Brain Dump | `minimax/minimax-m2.5` | Entity extraction from raw text |
 | Consistency Check | `moonshotai/kimi-k2.5` | Contradiction detection |
-| Relationship Suggestions | `x-ai/grok-4.1-fast` | Connection proposals |
-| Gap Detection | `x-ai/grok-4.1-fast` | Coverage analysis |
-| Embeddings | `google/gemini-embedding-001` | 3072-dim vectors for semantic search |
+| Relationship Suggestions | `openai/gpt-4o-mini` | Connection proposals |
+| Gap Detection | `google/gemini-2.0-pro-exp-02-05` | Coverage analysis |
+| Embeddings | `qwen/qwen3-embedding-8b` | 1536-dim vectors for semantic search |
 
 ### AllKnower API routes
 
@@ -325,7 +325,7 @@ RAG keeps LanceDB in sync with AllCodex so semantic search works.
    a. Fetches HTML content from AllCodex via ETAPI.
    b. Strips HTML tags to plain text.
    c. Chunks the text (splits into smaller segments).
-   d. Embeds each chunk via `google/gemini-embedding-001` through OpenRouter (3072-dim vectors).
+   d. Embeds each chunk via `qwen/qwen3-embedding-8b` through OpenRouter (1536-dim vectors).
    e. Upserts into LanceDB: deletes old chunks for that noteId, inserts new ones.
    f. Updates `rag_index_meta` in PostgreSQL (noteId, noteTitle, chunkCount, model, timestamp).
 
@@ -536,7 +536,7 @@ Single table `lore_embeddings`:
 | `noteTitle` | string | Note title at index time |
 | `chunkIndex` | number | Position in the note's chunk array |
 | `content` | string | Plain text chunk |
-| `vector` | float[3072] | Embedding from gemini-embedding-001 |
+| `vector` | float[1536] | Embedding from qwen/qwen3-embedding-8b |
 
 ---
 
@@ -662,7 +662,7 @@ graph TB
     end
 
     subgraph ExternalAPIs["External Services"]
-        OpenRouter["OpenRouter API<br/>LLM: grok-4.1-fast, kimi-k2.5<br/>Embed: gemini-embedding-001"]
+        OpenRouter["OpenRouter API<br/>LLM: minimax-m2.5, kimi-k2.5<br/>Embed: qwen3-embedding-8b"]
     end
 
     subgraph Storage["AllKnower Storage"]
@@ -735,7 +735,7 @@ sequenceDiagram
     Note over AK: Background: Reindex
     AK->>AC: GET /notes/:id/content
     AC-->>AK: HTML
-    AK->>LLM: Embed chunks (gemini-embedding-001)
+    AK->>LLM: Embed chunks (qwen3-embedding-8b)
     LLM-->>AK: Vectors
     AK->>LDB: upsertNoteChunks()
 ```

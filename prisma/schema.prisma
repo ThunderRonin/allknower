@@ -98,3 +98,14 @@ model AppConfig {
 
   @@map("app_config")
 }
+
+model RelationHistory {
+  id           String   @id @default(cuid())
+  sourceNoteId String
+  targetNoteId String
+  type         String
+  description  String?
+  createdAt    DateTime @default(now())
+
+  @@map("relation_history")
+}

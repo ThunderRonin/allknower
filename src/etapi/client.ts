@@ -158,6 +158,78 @@ export async function tagNote(noteId: string, labelName: string, value: string =
     await createAttribute({ noteId, type: "label", name: labelName, value });
 }
 
+// ── Relation Operations ───────────────────────────────────────────────────────
+
+/** Maps relationship types to Trilium relation attribute names */
+const RELATION_NAME_MAP: Record<string, string> = {
+    ally: "relAlly",
+    enemy: "relEnemy",
+    family: "relFamily",
+    location: "relLocation",
+    event: "relEvent",
+    faction: "relFaction",
+    other: "relOther",
+};
+
+export interface CreateRelationOptions {
+    bidirectional?: boolean; // default true — also create inverse on target
+    description?: string;   // written as #relationNote label for context
+}
+
+/**
+ * Create a relation attribute linking sourceNoteId → targetNoteId.
+ *
+ * - Maps `relationshipType` to a `rel<Type>` attribute name convention
+ * - Writes the description as a `#relationNote` label on the source note
+ * - If bidirectional (default), creates the inverse on the target note too
+ */
+export async function createRelation(
+    sourceNoteId: string,
+    targetNoteId: string,
+    relationshipType: string,
+    options: CreateRelationOptions = {}
+): Promise<void> {
+    const { bidirectional = true, description } = options;
+    const attrName = RELATION_NAME_MAP[relationshipType] ?? RELATION_NAME_MAP["other"];
+
+    // Forward relation: source → target
+    await createAttribute({
+        noteId: sourceNoteId,
+        type: "relation",
+        name: attrName,
+        value: targetNoteId,
+    });
+
+    // Write description as a label for inline context in AllCodex
+    if (description) {
+        await createAttribute({
+            noteId: sourceNoteId,
+            type: "label",
+            name: "relationNote",
+            value: `${relationshipType}:${targetNoteId}: ${description}`,
+        });
+    }
+
+    // Inverse relation: target → source (bidirectional)
+    if (bidirectional) {
+        await createAttribute({
+            noteId: targetNoteId,
+            type: "relation",
+            name: attrName,
+            value: sourceNoteId,
+        });
+
+        if (description) {
+            await createAttribute({
+                noteId: targetNoteId,
+                type: "label",
+                name: "relationNote",
+                value: `${relationshipType}:${sourceNoteId}: ${description}`,
+            });
+        }
+    }
+}
+
 // ── Health Check ──────────────────────────────────────────────────────────────
 
 /** Verify AllCodex is reachable via ETAPI */

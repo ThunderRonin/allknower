@@ -10,11 +10,12 @@ AllKnower sits behind AllCodex and provides:
 
 | Feature | Description |
 |---|---|
-| **Brain Dump** | Paste raw worldbuilding notes → LLM extracts structured lore entities → creates/updates notes in AllCodex via ETAPI |
-| **RAG System** | All lore is embedded via cloud models (Gemini) and stored in LanceDB. Semantically similar lore is injected as context on every brain dump to prevent contradictions. |
+| **Brain Dump** | Paste raw worldbuilding notes → LLM extracts structured lore entities → creates/updates notes in AllCodex via ETAPI. Auto-applies high-confidence relation suggestions after creation. |
+| **RAG System** | All lore is embedded via cloud models (Qwen) and stored in LanceDB. Hybrid reranking auto-dispatches between a local Xenova cross-encoder (simple queries) and LLM-as-a-Judge (complex relational queries) for optimal context quality. |
 | **Lore Autocomplete** | Instant title suggestions via two-phase lookup (SQL prefix match + semantic fallback) for inline linking in AllCodex. |
 | **Consistency Checker** | On-demand scan for contradictions, timeline conflicts, orphaned references, and naming inconsistencies. |
-| **Relationship Suggester** | Suggests connections between entities based on semantic relevance and context. |
+| **Relationship Suggester** | Suggests connections between entities with `high/medium/low` confidence. High-confidence suggestions are auto-applied to AllCodex on brain dump. |
+| **Relation Writing** | `POST /suggest/relationships/apply` — writes approved relation suggestions as Trilium `relation` attributes (bidirectional by default). All applied relations logged to `relation_history`. |
 | **Lore Gap Detector** | Identifies underdeveloped areas in the worldbuilding (e.g., "many characters, few locations"). |
 
 ---
@@ -28,10 +29,12 @@ AllKnower sits behind AllCodex and provides:
 | Database | PostgreSQL + Prisma |
 | Auth | better-auth (supports Bearer + Session) |
 | Vector DB | LanceDB (embedded) |
-| Embeddings | `google/gemini-embedding-001` via OpenRouter |
-| LLM — Brain Dump | `x-ai/grok-4.1-fast` via OpenRouter |
+| Embeddings | `qwen/qwen3-embedding-8b` via OpenRouter |
+| Reranker (simple) | `Xenova/ms-marco-MiniLM-L-6-v2` (local, ~80MB one-time download) |
+| Reranker (complex) | LLM-as-a-Judge via `RERANK_MODEL` (auto-dispatched) |
+| LLM — Brain Dump | `minimax/minimax-m2.5` via OpenRouter |
 | LLM — Consistency | `moonshotai/kimi-k2.5` via OpenRouter |
-| Background Jobs | `elysia-background` (RAG indexing) |
+| Background Jobs | `elysia-background` (with version 1.2.1 patch) |
 | API Docs | Scalar at `/reference` |
 | Type Safety | Hybrid (TypeBox for HTTP, Zod for LLM Data) |
 
@@ -51,6 +54,9 @@ AllKnower sits behind AllCodex and provides:
 ```bash
 # 1. Install dependencies
 bun install
+
+# Troubleshooting for limited bandwidth:
+# bun install --network-concurrency 1 --concurrent-scripts 1
 
 # 2. Configure environment
 cp .env.example .env
@@ -110,19 +116,20 @@ src/
 ├── env.ts                # Typesafe env schema
 ├── auth/                 # better-auth setup (Bearer enabled)
 ├── db/                   # Prisma client
-├── etapi/                # AllCodex ETAPI client
+├── etapi/                # AllCodex ETAPI client (createRelation, createAttribute, etc.)
 ├── pipeline/
-│   ├── brain-dump.ts     # Main orchestrator
+│   ├── brain-dump.ts     # Main orchestrator (includes auto-relate step)
+│   ├── relations.ts      # Shared relation suggest + apply pipeline
 │   ├── prompt.ts         # LLM calls (callLLM)
 │   └── parser.ts         # Zod LLM response parser
 ├── plugins/              # Elysia infrastructure plugins
 ├── rag/
 │   ├── embedder.ts       # Service-agnostic cloud embedder
-│   ├── lancedb.ts        # Vector store (LanceDB)
+│   ├── lancedb.ts        # Vector store + hybrid reranker (Xenova / LLM-as-a-Judge)
 │   └── indexer.ts        # Index lifecycle management
 ├── routes/               # API route handlers
 └── types/
-    └── lore.ts           # Central Zod schemas for lore entities
+    └── lore.ts           # Central Zod schemas (lore entities, relation types, etc.)
 ```
 
 ---

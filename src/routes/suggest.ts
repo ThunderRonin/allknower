@@ -4,6 +4,7 @@ import { getAllCodexNotes } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import prisma from "../db/client.ts";
+import { suggestRelationsForNote, applyRelations } from "../pipeline/relations.ts";
 
 export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .use(requireAuth)
@@ -14,34 +15,8 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .post(
         "/relationships",
         async ({ body }) => {
-            const similar = await queryLore(body.text, 15);
-
-            if (similar.length === 0) {
-                return { suggestions: [] };
-            }
-
-            const system = `You are a worldbuilding assistant for All Reach. Given a new lore entry and a list of existing entries, suggest meaningful narrative relationships between them.
-
-Return JSON: { "suggestions": [{ "targetNoteId": "...", "targetTitle": "...", "relationshipType": "ally|enemy|family|location|event|faction|other", "description": "One sentence explaining the suggested connection." }] }
-
-Only suggest relationships that are genuinely plausible based on the content. Do not invent connections.`;
-
-            const contextBlock = similar
-                .map((c) => `- ${c.noteTitle} (${c.noteId}): ${c.content.slice(0, 200)}`)
-                .join("\n");
-
-            const user = `New entry:\n${body.text}\n\nExisting lore:\n${contextBlock}`;
-
-            const { raw } = await callLLM(system, user, "suggest");
-
-            let result: unknown;
-            try {
-                result = JSON.parse(raw);
-            } catch {
-                result = { suggestions: [] };
-            }
-
-            return result;
+            const suggestions = await suggestRelationsForNote("unknown", body.text);
+            return { suggestions };
         },
         {
             body: t.Object({
@@ -51,6 +26,38 @@ Only suggest relationships that are genuinely plausible based on the content. Do
                 summary: "Suggest relationships",
                 description:
                     "Finds semantically similar lore and suggests meaningful narrative connections.",
+                tags: ["Intelligence"],
+            },
+        }
+    )
+    /**
+     * Apply approved relationship suggestions — writes relation attributes
+     * back to AllCodex via ETAPI.
+     */
+    .post(
+        "/relationships/apply",
+        async ({ body }) => {
+            const result = await applyRelations(
+                body.sourceNoteId,
+                body.relations,
+                { bidirectional: body.bidirectional ?? true }
+            );
+            return result;
+        },
+        {
+            body: t.Object({
+                sourceNoteId: t.String({ description: "The AllCodex note ID to create relations from" }),
+                relations: t.Array(t.Object({
+                    targetNoteId: t.String(),
+                    relationshipType: t.String({ description: "ally|enemy|family|location|event|faction|other" }),
+                    description: t.Optional(t.String()),
+                })),
+                bidirectional: t.Optional(t.Boolean({ default: true, description: "Create inverse relation on target note too" })),
+            }),
+            detail: {
+                summary: "Apply relationship suggestions",
+                description:
+                    "Writes approved relation suggestions to AllCodex as relation attributes.",
                 tags: ["Intelligence"],
             },
         }

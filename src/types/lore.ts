@@ -230,10 +230,43 @@ export const RagChunkSchema = z.object({
 });
 export type RagChunk = z.infer<typeof RagChunkSchema>;
 
+// ── Relationship schemas ──────────────────────────────────────────────────────
+
+export const RelationshipTypeSchema = z.enum([
+    "ally", "enemy", "family", "location", "event", "faction", "other",
+]);
+export type RelationshipType = z.infer<typeof RelationshipTypeSchema>;
+
+export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
+export type Confidence = z.infer<typeof ConfidenceSchema>;
+
+export const RelationSuggestionSchema = z.object({
+    targetNoteId: z.string(),
+    targetTitle: z.string().optional(),
+    relationshipType: RelationshipTypeSchema,
+    description: z.string(),
+    confidence: ConfidenceSchema.optional(),
+});
+export type RelationSuggestion = z.infer<typeof RelationSuggestionSchema>;
+
+export const ApplyRelationSchema = z.object({
+    targetNoteId: z.string(),
+    relationshipType: RelationshipTypeSchema,
+    description: z.string().optional(),
+});
+
+export const ApplyRelationBodySchema = z.object({
+    sourceNoteId: z.string(),
+    relations: z.array(ApplyRelationSchema).min(1),
+    bidirectional: z.boolean().default(true),
+});
+export type ApplyRelationBody = z.infer<typeof ApplyRelationBodySchema>;
+
 // ── Route body/param schemas (used in Elysia routes) ─────────────────────────
 
 export const BrainDumpBodySchema = z.object({
     rawText: z.string().min(10).max(50000),
+    autoRelate: z.boolean().default(true).optional(),
 });
 export type BrainDumpBody = z.infer<typeof BrainDumpBodySchema>;
 
