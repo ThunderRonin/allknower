@@ -56,10 +56,10 @@ export const app = new Elysia()
     })
 
     // ── Auth pages ───────────────────────────────────────────────────────────
-    .get("/register", () => Bun.file("src/register.html"), {
+    .get("/register", () => Bun.file("src/auth.html"), {
         detail: { hide: true },
     })
-    .get("/login", () => Bun.file("src/login.html"), {
+    .get("/login", () => Bun.file("src/auth.html"), {
         detail: { hide: true },
     })
 
