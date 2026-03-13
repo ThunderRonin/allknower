@@ -265,6 +265,12 @@
         .status-error { color: var(--error); }
         .status-success { color: var(--success); }
         .status-loading { color: var(--loading); font-style: italic; }
+        .status-sync { color: var(--gold-glow); font-weight: bold; animation: pulse 2s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
 
         /* --- Token Display --- */
         .token-display {
@@ -459,12 +465,20 @@
             </form>
         </div>
 
-        <div class="decoration-runes">
-            <span class="rune" style="animation-delay: 0s">ᚠ</span>
-            <span class="rune" style="animation-delay: 0.5s">ᚢ</span>
-            <span class="rune" style="animation-delay: 1.0s">ᚦ</span>
-            <span class="rune" style="animation-delay: 1.5s">ᚨ</span>
-            <span class="rune" style="animation-delay: 2.0s">ᚱ</span>
+        </div>
+
+        <!-- Sync Progress (Overlay) -->
+        <div id="syncOverlay" style="display: none; position: absolute; inset: 0; background: var(--card-bg); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border-radius: 12px; z-index: 50; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; border: 1px solid var(--gold-primary);">
+            <header class="header">
+                <h1>AllKnower</h1>
+                <p class="status-sync" id="syncStatus">Transferring Sigil to Portal...</p>
+            </header>
+            <div class="decoration-runes" style="margin-top: 40px;">
+                <span class="rune">ᛟ</span>
+                <span class="rune" style="animation-delay: 0.3s">ᛗ</span>
+                <span class="rune" style="animation-delay: 0.6s">ᛚ</span>
+            </div>
+            <p id="syncDetail" style="margin-top: 30px; font-size: 0.9rem; color: var(--text-muted);">Please do not close this scroll.</p>
         </div>
     </main>
 
@@ -508,6 +522,67 @@
 
         window.onpopstate = updateView;
 
+        // --- Portal Sync Logic ---
+        let syncParams = { url: null, redirect: null, verified: false };
+
+        async function initPortalSync() {
+            const params = new URLSearchParams(window.location.search);
+            const syncUrl = params.get('portalSyncUrl');
+            if (!syncUrl) return;
+
+            syncParams.url = syncUrl;
+            syncParams.redirect = params.get('redirectUrl');
+
+            try {
+                const res = await fetch('/api/auth/config');
+                const { portalSyncWhitelist } = await res.json();
+                
+                const origin = new URL(syncUrl).origin;
+                if (portalSyncWhitelist.includes(origin)) {
+                    syncParams.verified = true;
+                    console.info("Portal sync verified for:", origin);
+                } else {
+                    console.warn("Portal sync origin not whitelisted:", origin);
+                }
+            } catch (err) {
+                console.error("Failed to verify portal sync:", err);
+            }
+        }
+
+        async function performPortalSync(token, userData) {
+            if (!syncParams.verified) return;
+
+            const overlay = document.getElementById('syncOverlay');
+            const detail = document.getElementById('syncDetail');
+            overlay.style.display = 'flex';
+
+            try {
+                const res = await fetch(syncParams.url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, user: userData })
+                });
+
+                if (!res.ok) throw new Error("Portal rejected the sigil.");
+
+                detail.textContent = "Sync complete. Returning you to the Portal...";
+                
+                setTimeout(() => {
+                    if (syncParams.redirect) {
+                        window.location.href = syncParams.redirect;
+                    } else {
+                        // Default to just going back to the origin
+                        window.location.href = new URL(syncParams.url).origin;
+                    }
+                }, 1500);
+
+            } catch (err) {
+                detail.textContent = "Sync failed: " + err.message;
+                detail.style.color = 'var(--error)';
+                setTimeout(() => overlay.style.display = 'none', 3000);
+            }
+        }
+
         // --- Background Particles ---
         function initParticles() {
             const container = document.getElementById('particles');
@@ -546,6 +621,7 @@
             const btn = document.getElementById('loginBtn');
             const statusId = 'loginStatus';
 
+
             btn.disabled = true;
             setStatus(statusId, "Consulting the archive wards...", "loading");
             
@@ -570,6 +646,12 @@
                 }
 
                 if (!token) throw new Error("Authenticated, but sigil missing.");
+
+                // Check for portal sync
+                if (syncParams.verified) {
+                    await performPortalSync(token, data.user || { email });
+                    return;
+                }
 
                 setStatus(statusId, "Arcane seal broken. Your sigil is below.", "success");
                 const disp = document.getElementById('tokenDisplay');
@@ -619,8 +701,9 @@
         }
 
         // --- Init ---
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             initParticles();
+            await initPortalSync();
             updateView();
             document.getElementById('loginForm').onsubmit = handleLogin;
             document.getElementById('registerForm').onsubmit = handleRegister;

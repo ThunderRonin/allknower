@@ -9,6 +9,7 @@ import { suggestRoute } from "./routes/suggest.ts";
 import { healthRoute } from "./routes/health.ts";
 import { setupRoute } from "./routes/setup.ts";
 import { auth } from "./auth/index.ts";
+import { env } from "./env.ts";
 
 export const app = new Elysia()
     // ── Request logging ───────────────────────────────────────────────────────
@@ -53,6 +54,17 @@ export const app = new Elysia()
     .all("/api/auth/*", ({ request }) => auth.handler(request), {
         parse: "none",
         detail: { hide: true },
+    })
+
+    // ── Auth Config ───────────────────────────────────────────────────────────
+    .get("/api/auth/config", () => ({
+        portalSyncWhitelist: env.PORTAL_SYNC_WHITELIST.split(",").map((o: string) => o.trim()),
+    }), {
+        detail: { 
+            tags: ["System"],
+            summary: "Get public auth configuration",
+            description: "Exposes non-sensitive auth configuration like portal sync whitelists." 
+        },
     })
 
     // ── Auth pages ───────────────────────────────────────────────────────────

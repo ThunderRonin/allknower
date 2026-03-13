@@ -20,6 +20,7 @@ export const envSchema = z.object({
     // better-auth
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().default("http://localhost:3001"),
+    PORTAL_SYNC_WHITELIST: z.string().default("http://localhost:3000"),
 
     // OpenRouter
     OPENROUTER_API_KEY: z.string().min(1),
