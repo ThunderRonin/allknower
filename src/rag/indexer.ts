@@ -83,3 +83,53 @@ export async function fullReindex(): Promise<{ indexed: number; failed: number }
     rootLogger.info("Full reindex complete", { indexed, failed });
     return { indexed, failed };
 }
+
+/**
+ * Staleness-aware reindex — only reindexes notes whose AllCodex `utcDateModified`
+ * is more recent than the last `embeddedAt` recorded in RagIndexMeta, or that
+ * have never been indexed at all.
+ *
+ * Cheaper than fullReindex() — safe to run on a schedule.
+ */
+export async function reindexStaleNotes(): Promise<{
+    reindexed: number;
+    failed: number;
+    upToDate: number;
+}> {
+    rootLogger.info("Starting stale-notes reindex check");
+
+    // Fetch all lore notes and all existing index metadata in parallel
+    const [loreNotes, metaRecords] = await Promise.all([
+        getAllCodexNotes("#lore"),
+        prisma.ragIndexMeta.findMany({
+            select: { noteId: true, embeddedAt: true },
+        }),
+    ]);
+
+    const metaMap = new Map(metaRecords.map((r) => [r.noteId, r.embeddedAt]));
+
+    let reindexed = 0;
+    let failed = 0;
+    let upToDate = 0;
+
+    for (const note of loreNotes) {
+        const embeddedAt = metaMap.get(note.noteId);
+        const noteModified = new Date(note.utcDateModified);
+
+        const isStale = !embeddedAt || noteModified > embeddedAt;
+
+        if (isStale) {
+            try {
+                await indexNote(note.noteId);
+                reindexed++;
+            } catch {
+                failed++;
+            }
+        } else {
+            upToDate++;
+        }
+    }
+
+    rootLogger.info("Stale-notes reindex complete", { reindexed, failed, upToDate });
+    return { reindexed, failed, upToDate };
+}

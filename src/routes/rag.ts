@@ -1,6 +1,6 @@
 import Elysia, { t } from "elysia";
 import { queryLore } from "../rag/lancedb.ts";
-import { indexNote, fullReindex } from "../rag/indexer.ts";
+import { indexNote, fullReindex, reindexStaleNotes } from "../rag/indexer.ts";
 import prisma from "../db/client.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 
@@ -49,6 +49,21 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
             detail: {
                 summary: "Full RAG reindex",
                 description: "Reindexes all lore notes from AllCodex. Slow — use sparingly.",
+                tags: ["RAG"],
+            },
+        }
+    )
+    .post(
+        "/reindex-stale",
+        async () => {
+            const result = await reindexStaleNotes();
+            return result;
+        },
+        {
+            detail: {
+                summary: "Reindex stale notes",
+                description:
+                    "Compares each lore note's utcDateModified against its last embeddedAt timestamp. Only reindexes notes that have changed since the last embedding — safe to run on a schedule.",
                 tags: ["RAG"],
             },
         }

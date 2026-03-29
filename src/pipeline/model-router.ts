@@ -162,6 +162,12 @@ export async function callWithFallback(
                 plugins: [
                     { id: "response-healing" as const, enabled: true },
                 ],
+                // 3.3 + 3.4: explicit provider preferences + fallback routing
+                provider: {
+                    allowFallbacks: true,
+                    ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                    ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
+                } as any,
             },
         }, {
             signal: controller.signal,

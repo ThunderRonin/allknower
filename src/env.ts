@@ -68,6 +68,14 @@ export const envSchema = z.object({
         .default("120000")
         .pipe(z.number().positive()),
 
+    // OpenRouter provider routing preferences
+    // OPENROUTER_SORT: route all tasks to the cheapest / fastest / highest-quality provider
+    OPENROUTER_SORT: z
+        .enum(["price", "throughput", "latency"])
+        .optional(),
+    // OPENROUTER_ZDR: "true" enables Zero Data Retention (only routes to ZDR providers)
+    OPENROUTER_ZDR: z.string().default("false"),
+
     // LanceDB
     LANCEDB_PATH: z.string().default("./data/lancedb"),
 
