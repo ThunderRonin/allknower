@@ -55,6 +55,18 @@ export const envSchema = z.object({
 
     // Embedding Models
     EMBEDDING_CLOUD: z.string().default("qwen/qwen3-embedding-8b"),
+    EMBEDDING_DIMENSIONS: z
+        .string()
+        .transform(Number)
+        .default("4096")
+        .pipe(z.number().positive()),
+
+    // LLM timeout — per-request AbortController limit in milliseconds
+    LLM_TIMEOUT_MS: z
+        .string()
+        .transform(Number)
+        .default("120000")
+        .pipe(z.number().positive()),
 
     // LanceDB
     LANCEDB_PATH: z.string().default("./data/lancedb"),

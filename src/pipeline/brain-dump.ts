@@ -14,6 +14,7 @@ import { env } from "../env.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import type { BrainDumpResult } from "../types/lore.ts";
 import { suggestRelationsForNote, applyRelations } from "./relations.ts";
+import { rootLogger } from "../logger.ts";
 
 // The root note ID in AllCodex where new lore entries are placed.
 // This should be the "Lore" root note in the Chronicle.
@@ -37,6 +38,31 @@ export async function runBrainDump(
     options: { autoRelate?: boolean } = {}
 ): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
     const { autoRelate = true } = options;
+
+    // Idempotency: hash the raw text and check for a recent identical brain dump
+    const rawTextHash = Buffer.from(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawText))
+    ).toString("hex");
+
+    const existing = await prisma.brainDumpHistory.findFirst({
+        where: { rawTextHash },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, notesCreated: true, notesUpdated: true, parsedJson: true, model: true },
+    });
+    if (existing) {
+        rootLogger.info("Brain dump cache hit — returning existing result", {
+            historyId: existing.id,
+            rawTextHash,
+        });
+        const cached = existing.parsedJson as { entities: unknown[]; summary: string };
+        return {
+            summary: `[cached] ${cached.summary}`,
+            created: [],
+            updated: [],
+            skipped: [],
+            reindexIds: [],
+        };
+    }
 
     // Step 1: RAG context retrieval
     const ragContext = await queryLore(rawText, 10);
@@ -83,7 +109,10 @@ export async function runBrainDump(
                 try {
                     await setNoteTemplate(note.noteId, templateId);
                 } catch {
-                    console.warn(`[brain-dump] Template "${templateId}" not found — skipping template link for "${entity.title}"`);
+                    rootLogger.warn("Template not found — skipping template link", {
+                        templateId,
+                        entityTitle: entity.title,
+                    });
                 }
 
                 // Tag as lore entry
@@ -110,8 +139,21 @@ export async function runBrainDump(
             }
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
-            console.error(`[brain-dump] Failed to process entity "${entity.title}":`, error);
-            skipped.push({ title: entity.title, reason: msg });
+            const errorCategory =
+                msg.includes("401") || msg.includes("403") || msg.includes("auth")
+                    ? "auth"
+                    : msg.includes("network") || msg.includes("ECONNREFUSED") || msg.includes("fetch")
+                    ? "network"
+                    : msg.includes("validation") || msg.includes("invalid") || msg.includes("400")
+                    ? "validation"
+                    : "unknown";
+
+            rootLogger.error("Failed to process entity", {
+                entityTitle: entity.title,
+                error: msg,
+                errorCategory,
+            });
+            skipped.push({ title: entity.title, reason: msg, errorCategory });
         }
     }
 
@@ -140,7 +182,10 @@ export async function runBrainDump(
                 }
             } catch (error) {
                 // Relation failures NEVER break the brain dump
-                console.warn(`[brain-dump] Auto-relate failed for "${note.title}":`, error);
+                rootLogger.warn("Auto-relate failed", {
+                    entityTitle: note.title,
+                    error: error instanceof Error ? error.message : String(error),
+                });
                 relationResults.push({ noteId: note.noteId, applied: 0, failed: 0 });
             }
         }
@@ -150,6 +195,7 @@ export async function runBrainDump(
     await prisma.brainDumpHistory.create({
         data: {
             rawText,
+            rawTextHash,
             parsedJson: JSON.parse(JSON.stringify({ entities, summary })),
             notesCreated: created.map((n: { noteId: string }) => n.noteId),
             notesUpdated: updated.map((n: { noteId: string }) => n.noteId),

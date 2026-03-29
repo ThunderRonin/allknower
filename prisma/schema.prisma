@@ -69,6 +69,7 @@ model Verification {
 model BrainDumpHistory {
   id           String   @id @default(cuid())
   rawText      String
+  rawTextHash  String?                    // SHA-256 of rawText for idempotency dedup
   parsedJson   Json
   notesCreated String[]
   notesUpdated String[]
@@ -76,7 +77,22 @@ model BrainDumpHistory {
   tokensUsed   Int?
   createdAt    DateTime @default(now())
 
+  @@index([rawTextHash, createdAt])
   @@map("brain_dump_history")
+}
+
+model LLMCallLog {
+  id         String   @id @default(cuid())
+  requestId  String?
+  task       String                       // "brain-dump" | "consistency" | "suggest" | etc.
+  model      String                       // model that actually handled the request
+  tokensUsed Int
+  latencyMs  Int
+  createdAt  DateTime @default(now())
+
+  @@index([task])
+  @@index([createdAt])
+  @@map("llm_call_log")
 }
 
 model RagIndexMeta {

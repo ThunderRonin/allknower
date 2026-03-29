@@ -2,6 +2,10 @@ import Elysia, { t } from "elysia";
 import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
+import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
+import { ConsistencyResponseSchema } from "../pipeline/schemas/response-schemas.ts";
+import { rootLogger } from "../logger.ts";
 
 export const consistencyRoute = new Elysia({ prefix: "/consistency" })
     .use(requireAuth)
@@ -26,22 +30,25 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
             })
         );
 
-        const system = `You are a consistency checker for a fantasy worldbuilding grimoire called All Reach.
-Analyze the provided lore entries and identify:
-1. Factual contradictions (e.g. a character is alive in one entry, dead in another)
-2. Timeline conflicts (events that can't coexist chronologically)
-3. Orphaned references (mentions of entities that don't exist as entries)
-4. Naming inconsistencies (same entity referred to by different names)
+        const context = `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
+        const user = `Check these lore entries for consistency issues.`;
 
-Return JSON: { "issues": [{ "type": "contradiction"|"timeline"|"orphan"|"naming", "severity": "high"|"medium"|"low", "description": "...", "affectedNoteIds": ["..."] }], "summary": "..." }`;
-
-        const user = `Check these lore entries for consistency issues:\n\n${loreSummaries.join("\n\n")}`;
-
-        const { raw } = await callLLM(system, user, "consistency");
+        const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
+            jsonSchema: CONSISTENCY_JSON_SCHEMA,
+        });
 
         let result: unknown;
         try {
-            result = JSON.parse(raw);
+            const parsed = JSON.parse(raw);
+            const validated = ConsistencyResponseSchema.safeParse(parsed);
+            if (validated.success) {
+                result = validated.data;
+            } else {
+                rootLogger.warn("Consistency response failed validation", {
+                    errors: validated.error.issues,
+                });
+                result = { issues: [], summary: "LLM response failed validation." };
+            }
         } catch {
             result = { issues: [], summary: "Failed to parse consistency check response." };
         }

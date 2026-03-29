@@ -1,5 +1,6 @@
 import { LLMResponseSchema } from "../types/lore.ts";
 import type { LoreEntity } from "../types/lore.ts";
+import { rootLogger } from "../logger.ts";
 
 /**
  * Parse and validate the raw JSON string returned by the LLM.
@@ -25,10 +26,9 @@ export function parseBrainDumpResponse(raw: string): ParsedBrainDump {
 
     if (!result.success) {
         // Log each validation issue for debugging, then return what we can
-        console.warn("[parser] LLM response failed Zod validation:");
-        for (const issue of result.error.issues) {
-            console.warn(`  [${issue.path.join(".")}] ${issue.message}`);
-        }
+        rootLogger.warn("LLM response failed Zod validation", {
+            issues: result.error.issues.map((i) => `[${i.path.join(".").slice(0, 40)}] ${i.message}`),
+        });
 
         // Attempt a best-effort partial parse: extract entities that individually pass
         const raw_obj = json as Record<string, unknown>;
@@ -42,8 +42,10 @@ export function parseBrainDumpResponse(raw: string): ParsedBrainDump {
             if (entityResult.success) {
                 validEntities.push(entityResult.data);
             } else {
-                console.warn(`[parser] Dropping malformed entity "${(entity as any)?.title ?? "unknown"}":`,
-                    entityResult.error.issues[0]?.message);
+                rootLogger.warn("Dropping malformed entity", {
+                    entityTitle: (entity as any)?.title ?? "unknown",
+                    reason: entityResult.error.issues[0]?.message,
+                });
             }
         }
 

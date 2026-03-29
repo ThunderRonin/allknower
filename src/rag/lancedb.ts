@@ -1,9 +1,10 @@
 import * as lancedb from "@lancedb/lancedb";
-import { embed, EMBEDDING_DIMENSIONS } from "./embedder.ts";
+import { embed, embedBatch, EMBEDDING_DIMENSIONS } from "./embedder.ts";
 import type { RagChunk } from "../types/lore.ts";
 import { env } from "../env.ts";
 import { pipeline } from "@xenova/transformers";
 import { callWithFallback } from "../pipeline/model-router.ts";
+import { rootLogger } from "../logger.ts";
 
 const DB_PATH = env.LANCEDB_PATH;
 const TABLE_NAME = "lore_embeddings";
@@ -36,7 +37,7 @@ export async function getTable(): Promise<lancedb.Table> {
             },
         ]);
         // Remove the seed record
-        await _table.delete(`noteId = '__seed__'`);
+        await _table.delete(`noteId = '${sanitizeFilterValue("__seed__")}'`);
     }
 
     return _table;
@@ -54,20 +55,20 @@ export async function upsertNoteChunks(
     const table = await getTable();
 
     // Remove existing chunks for this note
-    await table.delete(`noteId = '${noteId}'`);
+    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}'`);
 
     if (chunks.length === 0) return;
 
-    // Embed all chunks
-    const records = await Promise.all(
-        chunks.map(async (content, chunkIndex) => ({
-            noteId,
-            noteTitle,
-            chunkIndex,
-            content,
-            vector: await embed(content),
-        }))
-    );
+    // True batch embed — single API call for all chunks
+    const vectors = await embedBatch(chunks);
+
+    const records = chunks.map((content, chunkIndex) => ({
+        noteId,
+        noteTitle,
+        chunkIndex,
+        content,
+        vector: vectors[chunkIndex],
+    }));
 
     await table.add(records);
 }
@@ -150,7 +151,10 @@ Score based on semantic relevance, not just keyword overlap. Consider narrative 
         const scores: number[] = parsed.scores ?? [];
 
         if (scores.length !== candidates.length) {
-            console.warn("[rerank] LLM returned wrong number of scores, falling back to vector scores");
+            rootLogger.warn("LLM reranker returned wrong number of scores, falling back to vector scores", {
+                expected: candidates.length,
+                got: scores.length,
+            });
             return candidates;
         }
 
@@ -159,7 +163,7 @@ Score based on semantic relevance, not just keyword overlap. Consider narrative 
             score: scores[i] ?? 0,
         })).sort((a, b) => b.score - a.score);
     } catch {
-        console.warn("[rerank] Failed to parse LLM reranker response, falling back to vector scores");
+        rootLogger.warn("Failed to parse LLM reranker response, falling back to vector scores");
         return candidates;
     }
 }
@@ -208,10 +212,27 @@ export async function queryLore(
         } else {
             candidates = await rerankWithLLM(queryText, candidates);
         }
-        console.info(`[rerank] Used ${complexity === "simple" ? "Xenova cross-encoder" : "LLM-as-a-Judge"} for: "${queryText.slice(0, 60)}..."`);
-    } catch (e) {
-        console.warn(`[rerank] ${complexity} reranking failed, falling back to base vector similarity`, e);
+        rootLogger.info("Reranking complete", {
+            strategy: complexity === "simple" ? "Xenova cross-encoder" : "LLM-as-a-Judge",
+            query: queryText.slice(0, 60),
+        });
+    } catch (e: unknown) {
+        rootLogger.warn("Reranking failed, falling back to base vector similarity", {
+            strategy: complexity,
+            error: e instanceof Error ? e.message : String(e),
+        });
     }
+
+    // 4. Deduplicate: group by noteId, keep highest-scoring chunk per note
+    const bestPerNote = new Map<string, RagChunk>();
+    for (const chunk of candidates) {
+        const existing = bestPerNote.get(chunk.noteId);
+        if (!existing || chunk.score > existing.score) {
+            bestPerNote.set(chunk.noteId, chunk);
+        }
+    }
+    candidates = Array.from(bestPerNote.values())
+        .sort((a, b) => b.score - a.score);
 
     return candidates.slice(0, topK);
 }
@@ -221,7 +242,7 @@ export async function queryLore(
  */
 export async function deleteNoteChunks(noteId: string): Promise<void> {
     const table = await getTable();
-    await table.delete(`noteId = '${noteId}'`);
+    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}'`);
 }
 
 /**
@@ -238,22 +259,83 @@ export async function checkLanceDbHealth(): Promise<{ ok: boolean; error?: strin
 }
 
 /**
- * Chunk a long text into overlapping segments for better RAG recall.
- * Simple sentence-aware chunking — good enough for lore entries.
+ * Sanitize a string value for use in LanceDB filter expressions.
+ * AllCodex noteIds are cuid-format (alphanumeric + hyphens/underscores).
+ * Throws on any input that looks like an injection attempt.
+ */
+function sanitizeFilterValue(value: string): string {
+    if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
+        throw new Error(`Invalid filter value format: "${value}"`);
+    }
+    // Belt-and-suspenders: escape single quotes even though the pattern above
+    // already rejects them — makes intent explicit.
+    return value.replace(/'/g, "''");
+}
+
+/**
+ * Semantic chunking — splits on structural boundaries first, then
+ * windows within large paragraphs.
+ *
+ * Strategy:
+ * 1. Split on double-newlines (paragraphs / section breaks)
+ * 2. For paragraphs that exceed chunkSize, split on sentence boundaries
+ * 3. Merge small adjacent paragraphs up to chunkSize
+ * 4. Apply overlap between resulting chunks
  */
 export function chunkText(text: string, chunkSize: number = 512, overlap: number = 64): string[] {
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [];
+    const paragraphs = text
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
 
-    const chunks: string[] = [];
-    let start = 0;
+    if (paragraphs.length === 0) return [];
 
-    while (start < words.length) {
-        const end = Math.min(start + chunkSize, words.length);
-        chunks.push(words.slice(start, end).join(" "));
-        if (end === words.length) break;
-        start += chunkSize - overlap;
+    // Split oversized paragraphs on sentence boundaries
+    const segments: string[] = [];
+    for (const para of paragraphs) {
+        const words = para.split(/\s+/);
+        if (words.length <= chunkSize) {
+            segments.push(para);
+        } else {
+            // Split on sentence endings (. ! ? followed by space or end)
+            const sentences = para.split(/(?<=[.!?])\s+/);
+            let buffer: string[] = [];
+            let bufferWordCount = 0;
+
+            for (const sentence of sentences) {
+                const sentenceWords = sentence.split(/\s+/).length;
+                if (bufferWordCount + sentenceWords > chunkSize && buffer.length > 0) {
+                    segments.push(buffer.join(" "));
+                    const overlapText = buffer.join(" ").split(/\s+/).slice(-overlap);
+                    buffer = [overlapText.join(" "), sentence];
+                    bufferWordCount = overlapText.length + sentenceWords;
+                } else {
+                    buffer.push(sentence);
+                    bufferWordCount += sentenceWords;
+                }
+            }
+            if (buffer.length > 0) segments.push(buffer.join(" "));
+        }
     }
+
+    // Merge small adjacent segments up to chunkSize
+    const chunks: string[] = [];
+    let current: string[] = [];
+    let currentWords = 0;
+
+    for (const segment of segments) {
+        const segWords = segment.split(/\s+/).length;
+        if (currentWords + segWords > chunkSize && current.length > 0) {
+            chunks.push(current.join("\n\n"));
+            const overlapWords = current.join("\n\n").split(/\s+/).slice(-overlap);
+            current = [overlapWords.join(" "), segment];
+            currentWords = overlapWords.length + segWords;
+        } else {
+            current.push(segment);
+            currentWords += segWords;
+        }
+    }
+    if (current.length > 0) chunks.push(current.join("\n\n"));
 
     return chunks;
 }

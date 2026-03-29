@@ -2,6 +2,7 @@ import { upsertNoteChunks, chunkText } from "./lancedb.ts";
 import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { env } from "../env.ts";
+import { rootLogger } from "../logger.ts";
 
 /**
  * RAG Indexer — background task that keeps LanceDB in sync with AllCodex.
@@ -46,9 +47,12 @@ export async function indexNote(noteId: string): Promise<void> {
             },
         });
 
-        console.log(`[indexer] Indexed note ${noteId} (${noteTitle}) — ${chunks.length} chunks`);
+        rootLogger.info("Indexed note", { noteId, noteTitle, chunkCount: chunks.length });
     } catch (error) {
-        console.error(`[indexer] Failed to index note ${noteId}:`, error);
+        rootLogger.error("Failed to index note", {
+            noteId,
+            error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
     }
 }
@@ -59,7 +63,7 @@ export async function indexNote(noteId: string): Promise<void> {
  * Uses the #lore label to identify lore entries.
  */
 export async function fullReindex(): Promise<{ indexed: number; failed: number }> {
-    console.log("[indexer] Starting full RAG reindex...");
+    rootLogger.info("Starting full RAG reindex");
 
     // Search for all notes tagged as lore entries
     const loreNotes = await getAllCodexNotes("#lore");
@@ -76,6 +80,6 @@ export async function fullReindex(): Promise<{ indexed: number; failed: number }
         }
     }
 
-    console.log(`[indexer] Full reindex complete — ${indexed} indexed, ${failed} failed`);
+    rootLogger.info("Full reindex complete", { indexed, failed });
     return { indexed, failed };
 }

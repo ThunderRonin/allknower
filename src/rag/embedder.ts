@@ -7,6 +7,7 @@ import { env } from "../env.ts";
  *
  * Model env vars:
  *   EMBEDDING_CLOUD=google/gemini-embedding-001
+ *   EMBEDDING_DIMENSIONS=4096  (must match model output; table is fixed at creation)
  */
 
 const EMBEDDING_CLOUD = env.EMBEDDING_CLOUD;
@@ -20,36 +21,35 @@ const openrouterClient = new OpenAI({
     },
 });
 
-// qwen/qwen3-embedding-8b produces 4096-dim vectors.
+// Dimensions are env-configurable so switching models doesn't require a code change.
 // LanceDB table schema is fixed at creation time — switching models requires
 // dropping the table and running a full reindex (POST /rag/reindex).
-export const EMBEDDING_DIMENSIONS = 4096;
+export const EMBEDDING_DIMENSIONS = env.EMBEDDING_DIMENSIONS;
 
 /**
  * Embed a single text string.
- * Uses OpenRouter EMBEDDING_CLOUD.
  */
 export async function embed(text: string): Promise<number[]> {
-    return embedViaOpenRouter(text);
+    const embeddings = await embedBatch([text]);
+    return embeddings[0];
 }
 
 /**
- * Embed multiple texts in batch.
- * Returns an array of embeddings in the same order as the input.
+ * Embed multiple texts in a single batch API call.
+ * Returns embeddings in the same order as the input.
  */
 export async function embedBatch(texts: string[]): Promise<number[][]> {
-    const results: number[][] = [];
-    // Sequential fallback if true batch is not robust
-    for (const text of texts) {
-        results.push(await embed(text));
-    }
-    return results;
-}
+    if (texts.length === 0) return [];
 
-async function embedViaOpenRouter(text: string): Promise<number[]> {
+    // True batch: the OpenAI-compatible API accepts string[] as input
     const response = await openrouterClient.embeddings.create({
         model: EMBEDDING_CLOUD,
-        input: text,
+        input: texts,
     });
-    return response.data[0].embedding;
+
+    // Sort by index to guarantee order matches input array
+    return response.data
+        .sort((a, b) => a.index - b.index)
+        .map((d) => d.embedding);
 }
+

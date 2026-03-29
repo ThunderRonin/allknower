@@ -5,6 +5,11 @@ import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import prisma from "../db/client.ts";
 import { suggestRelationsForNote, applyRelations } from "../pipeline/relations.ts";
+import { GAP_DETECT_SYSTEM } from "../pipeline/prompts/gap-detect.ts";
+import { AUTOCOMPLETE_SYSTEM } from "../pipeline/prompts/autocomplete.ts";
+import { GAP_DETECT_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
+import { GapDetectResponseSchema } from "../pipeline/schemas/response-schemas.ts";
+import { rootLogger } from "../logger.ts";
 
 export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .use(requireAuth)
@@ -77,17 +82,25 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 typeCounts[type] = (typeCounts[type] ?? 0) + 1;
             }
 
-            const system = `You are a worldbuilding advisor for All Reach. Given a breakdown of lore entry counts by type, identify gaps and underdeveloped areas.
+            const context = `Lore entry counts by type:\n${JSON.stringify(typeCounts, null, 2)}\n\nTotal entries: ${notes.length}`;
+            const user = `Identify gaps and underdeveloped areas in this lore collection.`;
 
-Return JSON: { "gaps": [{ "area": "...", "severity": "high"|"medium"|"low", "description": "...", "suggestion": "..." }], "summary": "..." }`;
-
-            const user = `Lore entry counts by type:\n${JSON.stringify(typeCounts, null, 2)}\n\nTotal entries: ${notes.length}`;
-
-            const { raw } = await callLLM(system, user, "gap-detect");
+            const { raw } = await callLLM(GAP_DETECT_SYSTEM, user, "gap-detect", context, {
+                jsonSchema: GAP_DETECT_JSON_SCHEMA,
+            });
 
             let result: unknown;
             try {
-                result = JSON.parse(raw);
+                const parsed = JSON.parse(raw);
+                const validated = GapDetectResponseSchema.safeParse(parsed);
+                if (validated.success) {
+                    result = validated.data;
+                } else {
+                    rootLogger.warn("Gap detect response failed validation", {
+                        errors: validated.error.issues,
+                    });
+                    result = { gaps: [], summary: "LLM response failed validation." };
+                }
             } catch {
                 result = { gaps: [], summary: "Failed to parse gap analysis." };
             }
@@ -140,6 +153,26 @@ Return JSON: { "gaps": [{ "area": "...", "severity": "high"|"medium"|"low", "des
                     }
                     if (suggestions.length >= limit) break;
                 }
+            }
+
+            // Phase 3: LLM creative completion when prefix + semantic came up empty
+            if (suggestions.length < Math.min(3, limit)) {
+                try {
+                    const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
+                    const parsed = JSON.parse(raw);
+                    for (const s of (parsed.suggestions ?? [])) {
+                        if (suggestions.length >= limit) break;
+                        const matches = await prisma.ragIndexMeta.findMany({
+                            where: { noteTitle: { contains: s.title, mode: "insensitive" } },
+                            take: 1,
+                            select: { noteId: true, noteTitle: true },
+                        });
+                        if (matches.length > 0 && !seen.has(matches[0].noteId)) {
+                            suggestions.push({ noteId: matches[0].noteId, title: matches[0].noteTitle });
+                            seen.add(matches[0].noteId);
+                        }
+                    }
+                } catch { /* LLM autocomplete is best-effort */ }
             }
 
             return { suggestions };

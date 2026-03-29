@@ -80,17 +80,21 @@ export function buildBrainDumpPrompt(
 /**
  * Call an LLM via OpenRouter with automatic server-side fallback.
  *
- * @param system   System prompt (static — placed first for cache hits)
- * @param user     User message (dynamic)
- * @param task     Which task this call is for — selects the appropriate model chain
- * @param context  Optional dynamic context message (placed between system and user)
+ * @param system     System prompt (static — placed first for cache hits)
+ * @param user       User message (dynamic)
+ * @param task       Which task this call is for — selects the appropriate model chain
+ * @param context    Optional dynamic context message (placed between system and user)
+ * @param options    Optional overrides: jsonSchema for strict structured output
  */
 export async function callLLM(
     system: string,
     user: string,
     task: TaskType = "brain-dump",
-    context?: string
-): Promise<{ raw: string; tokensUsed: number; model: string }> {
+    context?: string,
+    options?: {
+        jsonSchema?: { name: string; schema: Record<string, unknown> };
+    }
+): Promise<{ raw: string; tokensUsed: number; model: string; latencyMs: number }> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
         { role: "system", content: system },
     ];
@@ -102,10 +106,24 @@ export async function callLLM(
 
     messages.push({ role: "user", content: user });
 
+    const responseFormat: { type: "json_object" } | {
+        type: "json_schema";
+        jsonSchema: { name: string; schema: Record<string, unknown>; strict?: boolean };
+    } = options?.jsonSchema
+        ? {
+            type: "json_schema" as const,
+            jsonSchema: {
+                name: options.jsonSchema.name,
+                schema: options.jsonSchema.schema,
+                strict: true,
+            },
+        }
+        : { type: "json_object" as const };
+
     return callWithFallback(task, messages, {
         temperature: 0.3, // low temp for more deterministic output
         maxTokens: 65536, // set high maxTokens to avoid truncation of long outputs
-        responseFormat: { type: "json_object" },
+        responseFormat,
     });
 }
 

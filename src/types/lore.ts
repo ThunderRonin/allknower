@@ -227,6 +227,8 @@ export const BrainDumpResultSchema = z.object({
     skipped: z.array(z.object({
         title: z.string(),
         reason: z.string(),
+        errorCategory: z.enum(["auth", "network", "validation", "unknown"]).optional(),
+        noteId: z.string().optional(),
     })),
 });
 export type BrainDumpResult = z.infer<typeof BrainDumpResultSchema>;

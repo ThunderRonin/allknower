@@ -10,6 +10,10 @@ import { callLLM } from "./prompt.ts";
 import { createRelation, type CreateRelationOptions } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import type { RelationSuggestion } from "../types/lore.ts";
+import { SUGGEST_RELATIONS_SYSTEM } from "./prompts/suggest.ts";
+import { SUGGEST_RELATIONS_JSON_SCHEMA } from "./schemas/llm-response-schemas.ts";
+import { SuggestRelationsResponseSchema } from "./schemas/response-schemas.ts";
+import { rootLogger } from "../logger.ts";
 
 /**
  * Ask the LLM to suggest meaningful narrative relationships for a note.
@@ -28,30 +32,29 @@ export async function suggestRelationsForNote(
         return [];
     }
 
-    const system = `You are a worldbuilding assistant for All Reach. Given a new lore entry and a list of existing entries, suggest meaningful narrative relationships between them.
-
-Return JSON: { "suggestions": [{ "targetNoteId": "...", "targetTitle": "...", "relationshipType": "ally|enemy|family|location|event|faction|other", "description": "One sentence explaining the suggested connection.", "confidence": "high|medium|low" }] }
-
-Rules:
-- Only suggest relationships that are genuinely plausible based on the content
-- Do not invent connections
-- "high" confidence = directly stated or strongly implied in the text
-- "medium" confidence = likely based on context clues
-- "low" confidence = possible but speculative`;
-
     const contextBlock = similar
         .map((c) => `- ${c.noteTitle} (${c.noteId}): ${c.content.slice(0, 200)}`)
         .join("\n");
 
-    const user = `New entry (noteId: ${noteId}):\n${noteContent}\n\nExisting lore:\n${contextBlock}`;
+    const context = `## Existing Lore\n${contextBlock}`;
+    const user = `New entry (noteId: ${noteId}):\n${noteContent}`;
 
-    const { raw } = await callLLM(system, user, "suggest");
+    const { raw } = await callLLM(SUGGEST_RELATIONS_SYSTEM, user, "suggest", context, {
+        jsonSchema: SUGGEST_RELATIONS_JSON_SCHEMA,
+    });
 
     try {
         const parsed = JSON.parse(raw);
-        return (parsed.suggestions ?? []) as RelationSuggestion[];
+        const validated = SuggestRelationsResponseSchema.safeParse(parsed);
+        if (validated.success) {
+            return validated.data.suggestions as RelationSuggestion[];
+        }
+        rootLogger.warn("Relations response failed validation", {
+            errors: validated.error.issues,
+        });
+        return [];
     } catch {
-        console.warn("[relations] Failed to parse LLM suggestions response");
+        rootLogger.warn("Failed to parse LLM suggestions response");
         return [];
     }
 }
@@ -93,7 +96,12 @@ export async function applyRelations(
             applied.push({ targetNoteId: rel.targetNoteId, type: rel.relationshipType });
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
-            console.error(`[relations] Failed to apply relation ${sourceNoteId} → ${rel.targetNoteId}:`, error);
+            rootLogger.error("Failed to apply relation", {
+                sourceNoteId,
+                targetNoteId: rel.targetNoteId,
+                relationType: rel.relationshipType,
+                error: msg,
+            });
             failed.push({ targetNoteId: rel.targetNoteId, type: rel.relationshipType, reason: msg });
         }
     }

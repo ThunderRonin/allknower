@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { openapi } from "@elysiajs/openapi";
 import { logixlysia } from "logixlysia";
 import { plugins } from "./plugins/index.ts";
+import { requestIdPlugin } from "./plugins/request-id.ts";
 import { brainDumpRoute } from "./routes/brain-dump.ts";
 import { ragRoute } from "./routes/rag.ts";
 import { consistencyRoute } from "./routes/consistency.ts";
@@ -28,6 +29,7 @@ export const app = new Elysia()
     )
     // ── Infrastructure plugins ────────────────────────────────────────────────
     .use(plugins)
+    .use(requestIdPlugin)
 
     // ── API documentation (Scalar via @elysiajs/openapi) ─────────────────────
     .use(
