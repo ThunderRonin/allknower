@@ -19,7 +19,7 @@ export const BRAIN_DUMP_JSON_SCHEMA = {
                     properties: {
                         type: {
                             type: "string",
-                            enum: ["character", "location", "faction", "creature", "event", "timeline", "manuscript", "statblock"],
+                            enum: ["character", "location", "faction", "creature", "event", "timeline", "manuscript", "statblock", "item", "spell", "building", "language", "organization", "race", "myth", "cosmology", "deity", "religion"],
                         },
                         title: { type: "string" },
                         content: { type: "string" },
@@ -48,7 +48,7 @@ export const CONSISTENCY_JSON_SCHEMA = {
                 items: {
                     type: "object",
                     properties: {
-                        type: { type: "string", enum: ["contradiction", "timeline", "orphan", "naming"] },
+                        type: { type: "string", enum: ["contradiction", "timeline", "orphan", "naming", "logic", "power"] },
                         severity: { type: "string", enum: ["high", "medium", "low"] },
                         description: { type: "string" },
                         affectedNoteIds: { type: "array", items: { type: "string" } },
@@ -104,7 +104,7 @@ export const SUGGEST_RELATIONS_JSON_SCHEMA = {
                         targetTitle: { type: "string" },
                         relationshipType: {
                             type: "string",
-                            enum: ["ally", "enemy", "family", "location", "event", "faction", "other"],
+                            enum: ["ally", "enemy", "rival", "family", "member_of", "leader_of", "serves", "located_in", "originates_from", "participated_in", "caused", "created", "owns", "wields", "worships", "inhabits", "related_to"],
                         },
                         description: { type: "string" },
                         confidence: { type: "string", enum: ["high", "medium", "low"] },

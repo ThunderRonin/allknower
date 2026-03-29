@@ -20,12 +20,13 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .post(
         "/relationships",
         async ({ body }) => {
-            const suggestions = await suggestRelationsForNote("unknown", body.text);
+            const suggestions = await suggestRelationsForNote(body.noteId ?? "unknown", body.text);
             return { suggestions };
         },
         {
             body: t.Object({
                 text: t.String({ description: "Text of the new or existing lore entry to find relationships for" }),
+                noteId: t.Optional(t.String({ description: "AllCodex note ID — used for context and to filter self-referential suggestions" })),
             }),
             detail: {
                 summary: "Suggest relationships",
@@ -54,7 +55,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 sourceNoteId: t.String({ description: "The AllCodex note ID to create relations from" }),
                 relations: t.Array(t.Object({
                     targetNoteId: t.String(),
-                    relationshipType: t.String({ description: "ally|enemy|family|location|event|faction|other" }),
+                    relationshipType: t.String({ description: "ally|enemy|rival|family|member_of|leader_of|serves|located_in|originates_from|participated_in|caused|created|owns|wields|worships|inhabits|related_to" }),
                     description: t.Optional(t.String()),
                 })),
                 bidirectional: t.Optional(t.Boolean({ default: true, description: "Create inverse relation on target note too" })),
@@ -68,7 +69,8 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
         }
     )
     /**
-     * Gap detector — analyze the lore corpus and identify underdeveloped areas.
+     * Gap detector — analyze the lore corpus against worldbuilding pillars
+     * and identify structural, narrative, and thematic gaps.
      */
     .get(
         "/gaps",
@@ -76,14 +78,46 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
             const notes = await getAllCodexNotes("#lore");
 
             const typeCounts: Record<string, number> = {};
+            const entriesByType: Record<string, Array<{ title: string; noteId: string; snippet: string }>> = {};
+
             for (const note of notes) {
                 const typeAttr = note.attributes?.find((a: { name: string }) => a.name === "loreType");
                 const type = typeAttr?.value ?? "unknown";
                 typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+
+                if (!entriesByType[type]) entriesByType[type] = [];
+                // Summarize via promoted attributes (content requires a separate API call per note)
+                const promotedAttrs = (note.attributes ?? [])
+                    .filter((a: { name: string; type: string }) => a.type === "label" && !a.name.startsWith("label:"))
+                    .map((a: { name: string; value: string }) => `${a.name}: ${a.value}`)
+                    .slice(0, 5)
+                    .join(", ");
+                entriesByType[type].push({
+                    title: note.title ?? "Untitled",
+                    noteId: note.noteId,
+                    snippet: promotedAttrs,
+                });
             }
 
-            const context = `Lore entry counts by type:\n${JSON.stringify(typeCounts, null, 2)}\n\nTotal entries: ${notes.length}`;
-            const user = `Identify gaps and underdeveloped areas in this lore collection.`;
+            // Build a rich context block — not just counts, but a census with substance
+            let contextParts = [`## Lore Census — ${notes.length} total entries\n`];
+
+            for (const [type, entries] of Object.entries(entriesByType)) {
+                contextParts.push(`### ${type} (${entries.length} entries)`);
+                for (const entry of entries.slice(0, 20)) { // Cap at 20 per type to stay within context limits
+                    const line = entry.snippet
+                        ? `- **${entry.title}**: ${entry.snippet}…`
+                        : `- **${entry.title}** (no content yet)`;
+                    contextParts.push(line);
+                }
+                if (entries.length > 20) {
+                    contextParts.push(`- …and ${entries.length - 20} more`);
+                }
+                contextParts.push(""); // blank line between types
+            }
+
+            const context = contextParts.join("\n");
+            const user = `Analyze this lore corpus against the worldbuilding pillars. Identify the most impactful gaps, shallow areas, and missing connections. Focus on substance over counts.`;
 
             const { raw } = await callLLM(GAP_DETECT_SYSTEM, user, "gap-detect", context, {
                 jsonSchema: GAP_DETECT_JSON_SCHEMA,
@@ -111,7 +145,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
             detail: {
                 summary: "Detect lore gaps",
                 description:
-                    "Analyzes the lore corpus and identifies underdeveloped areas.",
+                    "Analyzes the lore corpus against worldbuilding pillars and identifies structural, narrative, and thematic gaps.",
                 tags: ["Intelligence"],
             },
         }

@@ -67,6 +67,68 @@ const TEMPLATE_FIELDS: Record<keyof typeof TEMPLATE_ID_MAP, PromotedField[]> = {
         { name: "wis",                valueType: "number" },
         { name: "cha",                valueType: "number" },
     ],
+    item: [
+        { name: "itemType",           valueType: "text"   },
+        { name: "rarity",             valueType: "text"   },
+        { name: "creator",            valueType: "text"   },
+        { name: "magicProperties",    valueType: "text"   },
+        { name: "currentOwner",       valueType: "text"   },
+    ],
+    spell: [
+        { name: "school",             valueType: "text"   },
+        { name: "level",              valueType: "text"   },
+        { name: "castingTime",        valueType: "text"   },
+        { name: "range",              valueType: "text"   },
+        { name: "components",         valueType: "text"   },
+        { name: "duration",           valueType: "text"   },
+    ],
+    building: [
+        { name: "buildingType",       valueType: "text"   },
+        { name: "owner",              valueType: "text"   },
+        { name: "purpose",            valueType: "text"   },
+        { name: "condition",          valueType: "text"   },
+        { name: "location",           valueType: "text"   },
+    ],
+    language: [
+        { name: "languageFamily",     valueType: "text"   },
+        { name: "speakers",           valueType: "text"   },
+        { name: "script",             valueType: "text"   },
+        { name: "samplePhrase",       valueType: "text"   },
+    ],
+    organization: [
+        { name: "orgType",            valueType: "text"   },
+        { name: "purpose",            valueType: "text"   },
+        { name: "leader",             valueType: "text"   },
+        { name: "headquarters",       valueType: "text"   },
+        { name: "status",             valueType: "text"   },
+    ],
+    race: [
+        { name: "racialType",         valueType: "text"   },
+        { name: "homeland",           valueType: "text"   },
+        { name: "lifespan",           valueType: "text"   },
+        { name: "culture",            valueType: "text"   },
+    ],
+    myth: [
+        { name: "mythType",           valueType: "text"   },
+        { name: "origin",             valueType: "text"   },
+        { name: "significance",       valueType: "text"   },
+    ],
+    cosmology: [
+        { name: "domain",             valueType: "text"   },
+        { name: "source",             valueType: "text"   },
+    ],
+    deity: [
+        { name: "domains",            valueType: "text"   },
+        { name: "alignment",          valueType: "text"   },
+        { name: "rank",               valueType: "text"   },
+        { name: "symbol",             valueType: "text"   },
+    ],
+    religion: [
+        { name: "deity",              valueType: "text"   },
+        { name: "pantheon",           valueType: "text"   },
+        { name: "clergy",             valueType: "text"   },
+        { name: "headquarters",       valueType: "text"   },
+    ],
 };
 
 // Human-readable titles for each template note
@@ -79,6 +141,16 @@ const TEMPLATE_TITLES: Record<keyof typeof TEMPLATE_ID_MAP, string> = {
     timeline:   "Lore Template — Timeline",
     manuscript: "Lore Template — Manuscript",
     statblock:  "Lore Template — Statblock",
+    item:       "Lore Template — Item / Artifact",
+    spell:      "Lore Template — Spell / Magic",
+    building:   "Lore Template — Building / Structure",
+    language:   "Lore Template — Language / Script",
+    organization: "Lore Template — Organization",
+    race:         "Lore Template — Race / Species",
+    myth:         "Lore Template — Myth / Legend",
+    cosmology:    "Lore Template — Cosmology",
+    deity:        "Lore Template — Deity",
+    religion:     "Lore Template — Religion",
 };
 
 const CONTAINER_NOTE_ID = "_lore_templates_container";

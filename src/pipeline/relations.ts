@@ -51,7 +51,11 @@ export async function suggestRelationsForNote(
         const parsed = JSON.parse(raw);
         const validated = SuggestRelationsResponseSchema.safeParse(parsed);
         if (validated.success) {
-            return validated.data.suggestions as RelationSuggestion[];
+            const suggestions = validated.data.suggestions as RelationSuggestion[];
+            // Filter out self-referential suggestions when noteId is known
+            return noteId !== "unknown"
+                ? suggestions.filter((s) => s.targetNoteId !== noteId)
+                : suggestions;
         }
         rootLogger.warn("Relations response failed validation", {
             errors: validated.error.issues,

@@ -11,7 +11,7 @@ import { z } from "zod";
 export const ConsistencyResponseSchema = z.object({
     issues: z.array(
         z.object({
-            type: z.enum(["contradiction", "timeline", "orphan", "naming"]),
+            type: z.enum(["contradiction", "timeline", "orphan", "naming", "logic", "power"]),
             severity: z.enum(["high", "medium", "low"]),
             description: z.string(),
             affectedNoteIds: z.array(z.string()),
@@ -41,7 +41,7 @@ export const SuggestRelationsResponseSchema = z.object({
         z.object({
             targetNoteId: z.string(),
             targetTitle: z.string().optional(),
-            relationshipType: z.enum(["ally", "enemy", "family", "location", "event", "faction", "other"]),
+            relationshipType: z.enum(["ally", "enemy", "rival", "family", "member_of", "leader_of", "serves", "located_in", "originates_from", "participated_in", "caused", "created", "owns", "wields", "worships", "inhabits", "related_to"]),
             description: z.string(),
             confidence: z.enum(["high", "medium", "low"]).optional(),
         })

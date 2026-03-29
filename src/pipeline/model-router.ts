@@ -149,7 +149,7 @@ export async function callWithFallback(
                 ...(fallbackModels.length > 0 && { models: fallbackModels }),
                 messages: messages as any,
                 temperature: options?.temperature ?? 0.3,
-                maxTokens: options?.maxTokens ?? 4096,
+                maxTokens: options?.maxTokens ?? 16384,
                 ...(options?.responseFormat && {
                     responseFormat: options.responseFormat as any,
                 }),

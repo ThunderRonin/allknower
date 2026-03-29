@@ -32,6 +32,16 @@ export const LoreEntityTypeSchema = z.enum([
     "timeline",
     "manuscript",
     "statblock",
+    "item",
+    "spell",
+    "building",
+    "language",
+    "organization",
+    "race",
+    "myth",
+    "cosmology",
+    "deity",
+    "religion",
 ]);
 export type LoreEntityType = z.infer<typeof LoreEntityTypeSchema>;
 
@@ -133,6 +143,108 @@ export const StatblockAttributesSchema = StatblockFieldsSchema.extend({
     legendaryActions: coerceToString,
 });
 
+export const ItemAttributesSchema = z.object({
+    itemType: z.string().optional(),
+    rarity: z.string().optional(),
+    creator: z.string().optional(),
+    magicProperties: coerceToString,
+    history: z.string().optional(),
+    currentOwner: z.string().optional(),
+    secrets: z.string().optional(),
+});
+
+export const SpellAttributesSchema = z.object({
+    school: z.string().optional(),
+    level: z.string().optional(),
+    castingTime: z.string().optional(),
+    range: z.string().optional(),
+    components: coerceToString,
+    duration: z.string().optional(),
+    origin: z.string().optional(),
+    secrets: z.string().optional(),
+});
+
+export const BuildingAttributesSchema = z.object({
+    buildingType: z.string().optional(),
+    owner: z.string().optional(),
+    purpose: z.string().optional(),
+    condition: z.string().optional(),
+    secrets: z.string().optional(),
+    location: z.string().optional(),
+});
+
+export const LanguageAttributesSchema = z.object({
+    languageFamily: z.string().optional(),
+    speakers: coerceToString,
+    script: z.string().optional(),
+    samplePhrase: z.string().optional(),
+    origin: z.string().optional(),
+});
+
+export const OrganizationAttributesSchema = z.object({
+    orgType: z.string().optional(),
+    purpose: z.string().optional(),
+    foundingDate: z.string().optional(),
+    leader: z.string().optional(),
+    headquarters: z.string().optional(),
+    members: z.array(z.string()).optional(),
+    resources: coerceToString,
+    secrets: z.string().optional(),
+    status: z.string().optional(),
+});
+
+export const RaceAttributesSchema = z.object({
+    racialType: z.string().optional(),
+    homeland: z.string().optional(),
+    physicalTraits: coerceToString,
+    culture: z.string().optional(),
+    languages: z.array(z.string()).optional(),
+    lifespan: z.string().optional(),
+    abilities: coerceToString,
+    relations: coerceToString,
+    secrets: z.string().optional(),
+});
+
+export const MythAttributesSchema = z.object({
+    mythType: z.string().optional(),
+    origin: z.string().optional(),
+    tellers: coerceToString,
+    truthBasis: z.string().optional(),
+    significance: z.string().optional(),
+    secrets: z.string().optional(),
+});
+
+export const CosmologyAttributesSchema = z.object({
+    domain: z.string().optional(),
+    laws: coerceToString,
+    source: z.string().optional(),
+    planes: z.array(z.string()).optional(),
+    interactions: coerceToString,
+    secrets: z.string().optional(),
+});
+
+export const DeityAttributesSchema = z.object({
+    domains: coerceToString,
+    alignment: z.string().optional(),
+    rank: z.string().optional(),
+    symbol: z.string().optional(),
+    worshippers: coerceToString,
+    allies: z.array(z.string()).optional(),
+    enemies: z.array(z.string()).optional(),
+    secrets: z.string().optional(),
+});
+
+export const ReligionAttributesSchema = z.object({
+    deity: z.string().optional(),
+    pantheon: z.string().optional(),
+    tenets: coerceToString,
+    clergy: z.string().optional(),
+    holyDays: coerceToString,
+    headquarters: z.string().optional(),
+    followers: coerceToString,
+    secrets: z.string().optional(),
+});
+
 // ── Discriminated union entity schemas ────────────────────────────────────────
 
 // Shared coercions applied to every entity type
@@ -189,6 +301,66 @@ export const StatblockEntitySchema = BaseLoreEntitySchema.extend({
     ...EntityBaseExtension,
 });
 
+export const ItemEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("item"),
+    attributes: ItemAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const SpellEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("spell"),
+    attributes: SpellAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const BuildingEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("building"),
+    attributes: BuildingAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const LanguageEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("language"),
+    attributes: LanguageAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const OrganizationEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("organization"),
+    attributes: OrganizationAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const RaceEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("race"),
+    attributes: RaceAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const MythEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("myth"),
+    attributes: MythAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const CosmologyEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("cosmology"),
+    attributes: CosmologyAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const DeityEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("deity"),
+    attributes: DeityAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const ReligionEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("religion"),
+    attributes: ReligionAttributesSchema,
+    ...EntityBaseExtension,
+});
+
 export const LoreEntitySchema = z.discriminatedUnion("type", [
     CharacterEntitySchema,
     LocationEntitySchema,
@@ -198,6 +370,16 @@ export const LoreEntitySchema = z.discriminatedUnion("type", [
     TimelineEntitySchema,
     ManuscriptEntitySchema,
     StatblockEntitySchema,
+    ItemEntitySchema,
+    SpellEntitySchema,
+    BuildingEntitySchema,
+    LanguageEntitySchema,
+    OrganizationEntitySchema,
+    RaceEntitySchema,
+    MythEntitySchema,
+    CosmologyEntitySchema,
+    DeityEntitySchema,
+    ReligionEntitySchema,
 ]);
 export type LoreEntity = z.infer<typeof LoreEntitySchema>;
 
@@ -244,7 +426,32 @@ export type RagChunk = z.infer<typeof RagChunkSchema>;
 // ── Relationship schemas ──────────────────────────────────────────────────────
 
 export const RelationshipTypeSchema = z.enum([
-    "ally", "enemy", "family", "location", "event", "faction", "other",
+    // Social / Political
+    "ally",              // alliance, cooperation, friendship
+    "enemy",             // opposition, hostility, nemesis
+    "rival",             // competition, tension without outright enmity
+    // Kinship
+    "family",            // blood relation, marriage, adoption, lineage
+    // Organizational
+    "member_of",         // belongs to faction, guild, order, pantheon
+    "leader_of",         // rules, commands, governs, presides over
+    "serves",            // sworn service, employment, devotion
+    // Spatial / Origin
+    "located_in",        // present at, based in, found at, resides
+    "originates_from",   // birthplace, founded in, forged at, homeland
+    // Temporal / Causal
+    "participated_in",   // took part in event, battle, ritual, catastrophe
+    "caused",            // triggered, initiated, responsible for
+    // Creation / Ownership
+    "created",           // built, forged, authored, brewed, enchanted
+    "owns",              // possesses, controls, holds, inherited
+    // Power / Magic
+    "wields",            // uses item, spell, power, artifact
+    "worships",          // follows deity, religion, philosophy, patron
+    // Ecological
+    "inhabits",          // creature habitat, native region, natural environment
+    // General
+    "related_to",        // catch-all for narrative connections that defy categorization
 ]);
 export type RelationshipType = z.infer<typeof RelationshipTypeSchema>;
 
@@ -305,12 +512,22 @@ export type SuggestRelationshipsBody = z.infer<typeof SuggestRelationshipsBodySc
 // ── Template ID map ───────────────────────────────────────────────────────────
 
 export const TEMPLATE_ID_MAP: Record<LoreEntityType, string> = {
-    character: "_template_lore_character",
-    location: "_template_lore_location",
-    faction: "_template_lore_faction",
-    creature: "_template_lore_creature",
-    event: "_template_lore_event",
-    timeline: "_template_lore_timeline",
-    manuscript: "_template_lore_manuscript",
-    statblock: "_template_lore_statblock",
+    character: "_template_character",
+    location: "_template_location",
+    faction: "_template_faction",
+    creature: "_template_creature",
+    event: "_template_event",
+    timeline: "_template_timeline",
+    manuscript: "_template_manuscript",
+    statblock: "_template_statblock",
+    item: "_template_item",
+    spell: "_template_spell",
+    building: "_template_building",
+    language: "_template_language",
+    organization: "_template_organization",
+    race: "_template_race",
+    myth: "_template_myth",
+    cosmology: "_template_cosmology",
+    deity: "_template_deity",
+    religion: "_template_religion",
 };
