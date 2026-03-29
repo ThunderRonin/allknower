@@ -5,10 +5,10 @@ import { z } from "zod";
  * Validated at startup via Zod.
  */
 export const envSchema = z.object({
-    PORT: z
-        .string()
-        .transform(Number)
-        .default("3001")
+    PORT: z.coerce
+        .number()
+        .optional()
+        .default(3001)
         .pipe(z.number().positive()),
     NODE_ENV: z
         .union([z.literal("development"), z.literal("production"), z.literal("test")])
@@ -55,17 +55,17 @@ export const envSchema = z.object({
 
     // Embedding Models
     EMBEDDING_CLOUD: z.string().default("qwen/qwen3-embedding-8b"),
-    EMBEDDING_DIMENSIONS: z
-        .string()
-        .transform(Number)
-        .default("4096")
+    EMBEDDING_DIMENSIONS: z.coerce
+        .number()
+        .optional()
+        .default(4096)
         .pipe(z.number().positive()),
 
     // LLM timeout — per-request AbortController limit in milliseconds
-    LLM_TIMEOUT_MS: z
-        .string()
-        .transform(Number)
-        .default("120000")
+    LLM_TIMEOUT_MS: z.coerce
+        .number()
+        .optional()
+        .default(120000)
         .pipe(z.number().positive()),
 
     // OpenRouter provider routing preferences
@@ -84,15 +84,15 @@ export const envSchema = z.object({
     ALLCODEX_ETAPI_TOKEN: z.string().min(1),
 
     // Rate limiting
-    BRAIN_DUMP_RATE_LIMIT_MAX: z
-        .string()
-        .transform(Number)
-        .default("10")
+    BRAIN_DUMP_RATE_LIMIT_MAX: z.coerce
+        .number()
+        .optional()
+        .default(10)
         .pipe(z.number().positive()),
-    BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: z
-        .string()
-        .transform(Number)
-        .default("60000")
+    BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: z.coerce
+        .number()
+        .optional()
+        .default(60000)
         .pipe(z.number().positive()),
 });
 

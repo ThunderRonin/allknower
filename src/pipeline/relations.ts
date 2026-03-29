@@ -29,6 +29,10 @@ export async function suggestRelationsForNote(
     const similar = await queryLore(noteContent, 15);
 
     if (similar.length === 0) {
+        rootLogger.warn("suggestRelationsForNote: queryLore returned 0 results — LanceDB may be empty or all candidates below threshold. Run POST /rag/reindex to populate the index.", {
+            noteId,
+            contentPreview: noteContent.slice(0, 80),
+        });
         return [];
     }
 

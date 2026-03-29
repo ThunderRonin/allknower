@@ -5,8 +5,11 @@ import { env } from "../env.ts";
 import { pipeline } from "@xenova/transformers";
 import { callWithFallback } from "../pipeline/model-router.ts";
 import { rootLogger } from "../logger.ts";
+import { mkdirSync } from "node:fs";
 
 const DB_PATH = env.LANCEDB_PATH;
+// Ensure the directory exists before LanceDB tries to benchmark I/O against it
+mkdirSync(DB_PATH, { recursive: true });
 const TABLE_NAME = "lore_embeddings";
 
 let _db: lancedb.Connection | null = null;
@@ -185,21 +188,38 @@ export async function queryLore(
     // 1. Initial retrieval — grab a larger pool for reranking
     const RETRIEVAL_MULTIPLIER = 3;
     const initialResults = await table
-        .search(queryVector)
+        .vectorSearch(queryVector)
+        .distanceType("cosine")
         .limit(topK * RETRIEVAL_MULTIPLIER)
         .select(["noteId", "noteTitle", "content", "_distance"])
         .toArray();
 
     // 2. Base similarity threshold (filter out immediate junk)
     const SIMILARITY_THRESHOLD = 0.3;
-    let candidates: RagChunk[] = initialResults.map((row: any) => ({
+    const rawCandidates: RagChunk[] = initialResults.map((row: any) => ({
         noteId: row.noteId as string,
         noteTitle: row.noteTitle as string,
         content: row.content as string,
         score: 1 - (row._distance as number),
-    })).filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
+    }));
+    let candidates = rawCandidates.filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
+
+    rootLogger.info("queryLore threshold filter", {
+        query: queryText.slice(0, 60),
+        retrieved: initialResults.length,
+        passedThreshold: candidates.length,
+        threshold: SIMILARITY_THRESHOLD,
+        topScore: rawCandidates[0]?.score?.toFixed(4),
+        topDistance: initialResults[0] ? (initialResults[0] as any)._distance?.toFixed(4) : undefined,
+    });
 
     if (candidates.length === 0) {
+        rootLogger.warn("queryLore: all candidates below threshold", {
+            query: queryText.slice(0, 60),
+            retrieved: initialResults.length,
+            threshold: SIMILARITY_THRESHOLD,
+            topScore: rawCandidates[0]?.score?.toFixed(4),
+        });
         return [];
     }
 
