@@ -11,6 +11,7 @@ import { background } from "elysia-background";
  */
 export const plugins = new Elysia({ name: "allknower/plugins" })
     // Security headers
+    // elysiaHelmet bundles elysia 1.4.25; project uses 1.4.28 — cast suppresses the private-field structural mismatch
     .use(
         elysiaHelmet({
             // CSP must allow Scalar UI (CDN scripts/styles) — override defaults
@@ -25,7 +26,7 @@ export const plugins = new Elysia({ name: "allknower/plugins" })
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
             },
-        })
+        }) as any
     )
     // Automatic ETag caching headers on GET responses
     .use(etag())

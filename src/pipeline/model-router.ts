@@ -155,7 +155,7 @@ export async function callWithFallback(
     try {
         const response = await openrouter.chat.send({
             httpReferer: "https://allknower.local",
-            xTitle: "AllKnower",
+            appTitle: "AllKnower",
             chatGenerationParams: {
                 model: primaryModel,
                 ...(fallbackModels.length > 0 && { models: fallbackModels }),
