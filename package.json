@@ -43,5 +43,8 @@
     },
     "patchedDependencies": {
         "elysia-background@1.2.1": "patches/elysia-background@1.2.1.patch"
+    },
+    "overrides": {
+        "elysia": "1.4.28"
     }
 }
