@@ -180,7 +180,8 @@ Score based on semantic relevance, not just keyword overlap. Consider narrative 
  */
 export async function queryLore(
     queryText: string,
-    topK: number = 10
+    topK: number = 10,
+    options?: { includeNoteIds?: string[] }
 ): Promise<RagChunk[]> {
     const table = await getTable();
     const queryVector = await embed(queryText);
@@ -203,6 +204,12 @@ export async function queryLore(
         score: 1 - (row._distance as number),
     }));
     let candidates = rawCandidates.filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
+
+    // Apply allowlist filter if provided (e.g. "only search within statblock notes")
+    if (options?.includeNoteIds && options.includeNoteIds.length > 0) {
+        const allowlist = new Set(options.includeNoteIds);
+        candidates = candidates.filter(c => allowlist.has(c.noteId));
+    }
 
     rootLogger.info("queryLore threshold filter", {
         query: queryText.slice(0, 60),
