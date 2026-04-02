@@ -1,5 +1,10 @@
 import type { RagChunk } from "../types/lore.ts";
 import { callWithFallback, type TaskType } from "./model-router.ts";
+import { countTokens } from "../utils/tokens.ts";
+import { deduplicateChunks } from "../rag/chunk-dedup.ts";
+import { compactChunks } from "../rag/chunk-compactor.ts";
+import { env } from "../env.ts";
+import { rootLogger } from "../logger.ts";
 
 /**
  * Prompt builder and LLM caller for AllKnower pipelines.
@@ -131,13 +136,52 @@ Return a JSON object with this exact shape:
  *   - context: dynamic RAG results (separate user message)
  *   - user: the raw brain dump text
  */
-export function buildBrainDumpPrompt(
+export async function buildBrainDumpPrompt(
     rawText: string,
     ragContext: RagChunk[]
-): { system: string; context: string; user: string } {
+): Promise<{ system: string; context: string; user: string; admittedChunks: RagChunk[] }> {
+    // Tier 1.5: deduplicate near-identical chunks
+    const dedupedContext = deduplicateChunks(ragContext);
+
+    // Tier 1: budget enforcement — admit chunks in relevance order until budget full
+    const MAX_RAG_TOKENS = env.RAG_CONTEXT_MAX_TOKENS;
+    let budgetUsed = 0;
+    const admittedChunks: RagChunk[] = [];
+
+    for (const chunk of dedupedContext) {
+        const chunkTokens = countTokens(chunk.content);
+        if (budgetUsed + chunkTokens <= MAX_RAG_TOKENS) {
+            admittedChunks.push(chunk);
+            budgetUsed += chunkTokens;
+        } else if (budgetUsed >= MAX_RAG_TOKENS) {
+            break; // hard stop once full
+        }
+        // else: skip this oversized chunk but continue looking for smaller ones
+    }
+
+    rootLogger.info("RAG budget summary", {
+        totalChunks: ragContext.length,
+        afterDedup: dedupedContext.length,
+        admitted: admittedChunks.length,
+        budgetUsed,
+        MAX_RAG_TOKENS,
+    });
+
+    // Tier 2: summarize oversized chunks (parallel, failure-isolated, concurrency-limited)
+    const compactedChunks = await compactChunks(admittedChunks);
+
+    // Recalculate budget after compaction — compacted chunks free up space
+    const postCompactBudget = compactedChunks.reduce(
+        (sum, c) => sum + countTokens(c.content), 0
+    );
+    const freed = budgetUsed - postCompactBudget;
+    if (freed > 0) {
+        rootLogger.info("Tier 2 freed tokens", { freed, postCompactBudget });
+    }
+
     const contextBlock =
-        ragContext.length > 0
-            ? ragContext
+        compactedChunks.length > 0
+            ? compactedChunks
                 .map((c) => `### ${c.noteTitle}\n${c.content}`)
                 .join("\n\n")
             : "No existing lore found — this appears to be new content.";
@@ -146,7 +190,7 @@ export function buildBrainDumpPrompt(
 
     const user = `Parse the following worldbuilding notes into structured lore entities:\n\n${rawText}`;
 
-    return { system: BRAIN_DUMP_SYSTEM, context, user };
+    return { system: BRAIN_DUMP_SYSTEM, context, user, admittedChunks: compactedChunks };
 }
 
 /**
@@ -167,8 +211,8 @@ export async function callLLM(
         jsonSchema?: { name: string; schema: Record<string, unknown> };
     }
 ): Promise<{ raw: string; tokensUsed: number; model: string; latencyMs: number }> {
-    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: system },
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string; cache_control?: { type: string } }> = [
+        { role: "system", content: system, cache_control: { type: "ephemeral" } },
     ];
 
     // Dynamic context goes after the static system prompt

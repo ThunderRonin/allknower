@@ -20,7 +20,9 @@ export type TaskType =
     | "suggest"
     | "gap-detect"
     | "autocomplete"
-    | "rerank";
+    | "rerank"
+    | "compact"
+    | "session-compact";
 
 interface ModelChain {
     primary: string;
@@ -75,6 +77,16 @@ export function getModelChain(task: TaskType): string[] {
             primary: env.RERANK_MODEL,
             fallback1: env.RERANK_FALLBACK_1,
             fallback2: env.RERANK_FALLBACK_2,
+        },
+        compact: {
+            primary: env.COMPACT_MODEL,
+            fallback1: env.COMPACT_FALLBACK_1,
+            fallback2: env.COMPACT_FALLBACK_2,
+        },
+        "session-compact": {
+            primary: env.COMPACT_MODEL,
+            fallback1: env.COMPACT_FALLBACK_1,
+            fallback2: env.COMPACT_FALLBACK_2,
         },
     };
 
