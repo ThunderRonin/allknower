@@ -42,6 +42,9 @@ export const LoreEntityTypeSchema = z.enum([
     "cosmology",
     "deity",
     "religion",
+    "session",
+    "quest",
+    "scene",
 ]);
 export type LoreEntityType = z.infer<typeof LoreEntityTypeSchema>;
 
@@ -245,6 +248,32 @@ export const ReligionAttributesSchema = z.object({
     secrets: z.string().optional(),
 });
 
+export const SessionAttributesSchema = z.object({
+    sessionDate: z.string().optional(),
+    players: coerceToString,
+    sessionStatus: z.string().optional(),
+    recap: z.string().optional(),
+    hooks: coerceToString,
+    gmNotes: z.string().optional(),
+});
+
+export const QuestAttributesSchema = z.object({
+    questStatus: z.enum(["active", "completed", "failed", "deferred", "unknown"])
+        .catch("unknown").optional(),
+    questGiver: z.string().optional(),
+    reward: z.string().optional(),
+    location: z.string().optional(),
+    hooks: coerceToString,
+    consequences: coerceToString,
+});
+
+export const SceneAttributesSchema = z.object({
+    location: z.string().optional(),
+    participants: coerceToString,
+    outcome: z.string().optional(),
+    gmNotes: z.string().optional(),
+});
+
 // ── Discriminated union entity schemas ────────────────────────────────────────
 
 // Shared coercions applied to every entity type
@@ -361,6 +390,24 @@ export const ReligionEntitySchema = BaseLoreEntitySchema.extend({
     ...EntityBaseExtension,
 });
 
+export const SessionEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("session"),
+    attributes: SessionAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const QuestEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("quest"),
+    attributes: QuestAttributesSchema,
+    ...EntityBaseExtension,
+});
+
+export const SceneEntitySchema = BaseLoreEntitySchema.extend({
+    type: z.literal("scene"),
+    attributes: SceneAttributesSchema,
+    ...EntityBaseExtension,
+});
+
 export const LoreEntitySchema = z.discriminatedUnion("type", [
     CharacterEntitySchema,
     LocationEntitySchema,
@@ -380,6 +427,9 @@ export const LoreEntitySchema = z.discriminatedUnion("type", [
     CosmologyEntitySchema,
     DeityEntitySchema,
     ReligionEntitySchema,
+    SessionEntitySchema,
+    QuestEntitySchema,
+    SceneEntitySchema,
 ]);
 export type LoreEntity = z.infer<typeof LoreEntitySchema>;
 
@@ -412,8 +462,30 @@ export const BrainDumpResultSchema = z.object({
         errorCategory: z.enum(["auth", "network", "validation", "unknown"]).optional(),
         noteId: z.string().optional(),
     })),
+    duplicates: z.array(z.object({
+        proposedTitle: z.string(),
+        proposedType: z.string(),
+        matches: z.array(z.object({
+            noteId: z.string(),
+            title: z.string(),
+            score: z.number(),
+        })),
+    })).optional(),
 });
 export type BrainDumpResult = z.infer<typeof BrainDumpResultSchema>;
+
+export const BrainDumpHistoryEntrySchema = z.object({
+    id: z.string(),
+    rawText: z.string(),
+    summary: z.string().nullable(),
+    notesCreated: z.array(z.string()),
+    notesUpdated: z.array(z.string()),
+    model: z.string(),
+    tokensUsed: z.number().nullable(),
+    createdAt: z.string(),
+});
+export type BrainDumpHistoryEntry = z.infer<typeof BrainDumpHistoryEntrySchema>;
+
 
 export const RagChunkSchema = z.object({
     noteId: z.string(),
@@ -422,6 +494,35 @@ export const RagChunkSchema = z.object({
     score: z.number(),
 });
 export type RagChunk = z.infer<typeof RagChunkSchema>;
+
+// ── Session state schema (Tier 3 context compaction) ──────────────────────────
+
+export const LoreSessionStateSchema = z.object({
+    /** 1. What the user is trying to accomplish this session */
+    intent: z.string(),
+    /** 2. Which entity types came up */
+    loreTypesInPlay: z.array(LoreEntityTypeSchema),
+    /** 3. AllCodex note IDs created/updated this session */
+    noteIdsModified: z.array(z.string()),
+    /** 4. Things that failed and why */
+    skippedEntities: z.array(z.object({
+        title: z.string(),
+        reason: z.string(),
+        errorCategory: z.string().optional(),
+    })),
+    /** 5. Compressed summary of all user raw inputs this session */
+    rawInputsSummary: z.string(),
+    /** 6. Lore gaps or inconsistencies flagged but not resolved */
+    unresolvedGaps: z.array(z.string()),
+    /** 7. The entity currently being actively worked on */
+    currentFocus: z.string().optional(),
+    /** Metadata */
+    lastCompactedAt: z.string().optional(),
+    totalTokensConsumed: z.number().default(0),
+    /** Schema version for future state migrations */
+    schemaVersion: z.literal(1).default(1),
+});
+export type LoreSessionState = z.infer<typeof LoreSessionStateSchema>;
 
 // ── Relationship schemas ──────────────────────────────────────────────────────
 
@@ -530,4 +631,7 @@ export const TEMPLATE_ID_MAP: Record<LoreEntityType, string> = {
     cosmology: "_template_cosmology",
     deity: "_template_deity",
     religion: "_template_religion",
+    session: "_template_session",
+    quest: "_template_quest",
+    scene: "_template_scene",
 };
