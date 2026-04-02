@@ -125,3 +125,34 @@ model RelationHistory {
 
   @@map("relation_history")
 }
+
+// ── Tier 3: Session state for multi-turn context compaction ───────────────────
+
+model LoreSession {
+  id                String               @id @default(cuid())
+  title             String?
+  state             Json                 // LoreSessionState
+  tokensAccumulated Int                  @default(0)
+  compactionCount   Int                  @default(0)
+  compactionFailed  Int                  @default(0)
+  lockedAt          DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  messages          LoreSessionMessage[]
+
+  @@map("lore_sessions")
+}
+
+model LoreSessionMessage {
+  id         String      @id @default(cuid())
+  sessionId  String
+  role       String      // "user" | "assistant" | "system"
+  content    String
+  tokenCount Int         @default(0)
+  metadata   Json?       // { model, latencyMs, ragChunksUsed, compacted: bool }
+  createdAt  DateTime    @default(now())
+  session    LoreSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("lore_session_messages")
+}
