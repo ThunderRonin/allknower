@@ -76,6 +76,21 @@ export const envSchema = z.object({
     // OPENROUTER_ZDR: "true" enables Zero Data Retention (only routes to ZDR providers)
     OPENROUTER_ZDR: z.string().default("false"),
 
+    // Context compaction — Tier 1: RAG budget
+    RAG_CONTEXT_MAX_TOKENS: z.coerce.number().default(6000),
+
+    // Context compaction — Tier 1.5: dedup
+    RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD: z.coerce.number().default(0.85),
+
+    // Context compaction — Tier 2: chunk summarization
+    RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: z.coerce.number().default(600),
+    COMPACT_MODEL: z.string().default("anthropic/claude-haiku-4-5-20251001"),
+    COMPACT_FALLBACK_1: z.string().default("openai/gpt-4.1-nano"),
+    COMPACT_FALLBACK_2: z.string().default(""),
+
+    // Context compaction — Tier 3: session autocompact (future)
+    SESSION_TOKEN_THRESHOLD: z.coerce.number().default(80000),
+
     // LanceDB
     LANCEDB_PATH: z.string().default("./data/lancedb"),
 
