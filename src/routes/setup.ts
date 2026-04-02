@@ -129,6 +129,24 @@ const TEMPLATE_FIELDS: Record<keyof typeof TEMPLATE_ID_MAP, PromotedField[]> = {
         { name: "clergy",             valueType: "text"   },
         { name: "headquarters",       valueType: "text"   },
     ],
+    session: [
+        { name: "sessionDate",        valueType: "date"   },
+        { name: "sessionStatus",      valueType: "text"   },
+        { name: "players",            valueType: "text"   },
+        { name: "recap",              valueType: "text"   },
+    ],
+    quest: [
+        { name: "questStatus",        valueType: "text"   },
+        { name: "questGiver",         valueType: "text"   },
+        { name: "reward",             valueType: "text"   },
+        { name: "location",           valueType: "text"   },
+    ],
+    scene: [
+        { name: "location",           valueType: "text"   },
+        { name: "participants",        valueType: "text"   },
+        { name: "outcome",            valueType: "text"   },
+        { name: "gmNotes",            valueType: "text"   },
+    ],
 };
 
 // Human-readable titles for each template note
@@ -151,6 +169,9 @@ const TEMPLATE_TITLES: Record<keyof typeof TEMPLATE_ID_MAP, string> = {
     cosmology:    "Lore Template — Cosmology",
     deity:        "Lore Template — Deity",
     religion:     "Lore Template — Religion",
+    session:      "Lore Template — Session",
+    quest:        "Lore Template — Quest",
+    scene:        "Lore Template — Scene",
 };
 
 const CONTAINER_NOTE_ID = "_lore_templates_container";
