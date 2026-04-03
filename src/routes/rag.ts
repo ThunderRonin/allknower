@@ -27,8 +27,25 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     .post(
         "/reindex/:noteId",
         async ({ params }) => {
-            await indexNote(params.noteId);
-            return { ok: true, noteId: params.noteId };
+            try {
+                await indexNote(params.noteId);
+                return { ok: true, noteId: params.noteId };
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                const missingNote = /missing note|not found|\b404\b/i.test(message);
+
+                return new Response(
+                    JSON.stringify({
+                        error: missingNote ? "NOTE_NOT_FOUND" : "REINDEX_FAILED",
+                        message,
+                        noteId: params.noteId,
+                    }),
+                    {
+                        status: missingNote ? 404 : 500,
+                        headers: { "Content-Type": "application/json" },
+                    }
+                );
+            }
         },
         {
             params: t.Object({ noteId: t.String({ description: "AllCodex note ID to reindex" }) }),
