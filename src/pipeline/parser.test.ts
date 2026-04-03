@@ -9,6 +9,7 @@ describe("parser", () => {
                     type: "character",
                     title: "Arthur",
                     content: "<p>The great king.</p>",
+                    attributes: {},
                     action: "create"
                 }
             ],
@@ -32,6 +33,7 @@ describe("parser", () => {
                     type: "character",
                     title: "Arthur",
                     content: "<p>The great king.</p>",
+                    attributes: {},
                     action: "create"
                 },
                 {

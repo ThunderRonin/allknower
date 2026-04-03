@@ -53,6 +53,9 @@ mock.module("../../src/db/client.ts", () => ({
     default: {
         $queryRaw: mock(async () => [{ "?column?": 1 }]),
         appConfig: { findUnique: mock(async () => null) },
+        ragIndexMeta: {
+            findMany: mock(async () => []),
+        },
         brainDumpHistory: {
             create: mock(async () => ({ id: "hist-new" })),
             findMany: mock(async () => [

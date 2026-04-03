@@ -7,7 +7,17 @@ let lancedbOk = true;
 let databaseOk = true;
 
 mock.module("../src/etapi/client.ts", () => ({
-    checkAllCodexHealth: mock(async () => ({ ok: allcodexOk }))
+    checkAllCodexHealth: mock(async () => ({ ok: allcodexOk })),
+    createAttribute: mock(async () => ({})),
+    createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
+    createRelation: mock(async () => {}),
+    getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
+    getNoteContent: mock(async (noteId: string) => `<p>${noteId} content</p>`),
+    setNoteContent: mock(async () => {}),
+    setNoteTemplate: mock(async () => {}),
+    tagNote: mock(async () => {}),
+    updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({

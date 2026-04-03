@@ -6,13 +6,28 @@ import { indexNote } from "../rag/indexer.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 
-export const brainDumpRoute = new Elysia({ prefix: "/brain-dump" })
-    .use(requireAuth)
+type BrainDumpRouteDeps = {
+    runBrainDumpImpl?: typeof runBrainDump;
+    commitReviewedEntitiesImpl?: typeof commitReviewedEntities;
+    indexNoteImpl?: typeof indexNote;
+    requireAuthImpl?: typeof requireAuth;
+    rateLimitEnv?: Pick<typeof env, "BRAIN_DUMP_RATE_LIMIT_MAX" | "BRAIN_DUMP_RATE_LIMIT_WINDOW_MS">;
+};
+
+export function createBrainDumpRoute({
+    runBrainDumpImpl = runBrainDump,
+    commitReviewedEntitiesImpl = commitReviewedEntities,
+    indexNoteImpl = indexNote,
+    requireAuthImpl = requireAuth,
+    rateLimitEnv = env,
+}: BrainDumpRouteDeps = {}) {
+    return new Elysia({ prefix: "/brain-dump" })
+    .use(requireAuthImpl)
     .use(background())
     .use(
         rateLimit({
-            max: env.BRAIN_DUMP_RATE_LIMIT_MAX,
-            duration: env.BRAIN_DUMP_RATE_LIMIT_WINDOW_MS,
+            max: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_MAX,
+            duration: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(
                 JSON.stringify({ error: "Rate limit exceeded. Brain dump is limited to 10 requests per minute." }),
                 { status: 429, headers: { "Content-Type": "application/json" } }
@@ -23,12 +38,12 @@ export const brainDumpRoute = new Elysia({ prefix: "/brain-dump" })
         "/",
         async ({ body, backgroundTasks }) => {
             const mode = body.mode ?? "auto";
-            const result = await runBrainDump(body.rawText, mode);
+            const result = await runBrainDumpImpl(body.rawText, mode);
 
             if ("reindexIds" in result) {
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
                 for (const noteId of reindexIds) {
-                    backgroundTasks.addTask(indexNote, noteId);
+                    backgroundTasks.addTask(indexNoteImpl, noteId);
                 }
                 return rest;
             }
@@ -59,10 +74,10 @@ export const brainDumpRoute = new Elysia({ prefix: "/brain-dump" })
     .post(
         "/commit",
         async ({ body, backgroundTasks }) => {
-            const result = await commitReviewedEntities(body.rawText, body.approvedEntities);
+            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities);
             const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
             for (const noteId of (reindexIds ?? [])) {
-                backgroundTasks.addTask(indexNote, noteId);
+                backgroundTasks.addTask(indexNoteImpl, noteId);
             }
             return rest;
         },
@@ -148,3 +163,6 @@ export const brainDumpRoute = new Elysia({ prefix: "/brain-dump" })
             },
         }
     );
+}
+
+export const brainDumpRoute = createBrainDumpRoute();

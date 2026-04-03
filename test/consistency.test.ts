@@ -5,12 +5,31 @@ import { requestJson } from "./helpers/http.ts";
 
 let returnNoNotes = false;
 
+async function buildBrainDumpPromptMock(
+    rawText: string,
+    ragContext: Array<{ noteTitle: string; content: string }>
+) {
+    const context = ragContext.length > 0
+        ? ragContext.map((chunk) => `### ${chunk.noteTitle}\n${chunk.content}`).join("\n\n")
+        : "No existing lore found";
+
+    return {
+        system: "You are the lore architect",
+        context,
+        user: rawText,
+        admittedChunks: ragContext,
+    };
+}
+
 mock.module("../src/plugins/auth-guard.ts", () => ({
     requireAuth: requireAuthBypass
 }));
 
 mock.module("../src/etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
+    createAttribute: mock(async () => ({})),
+    createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
+    createRelation: mock(async () => {}),
     getAllCodexNotes: mock(async () => {
         if (returnNoNotes) {
             return [];
@@ -22,6 +41,11 @@ mock.module("../src/etapi/client.ts", () => ({
         ];
     }),
     getNoteContent: mock(async (noteId: string) => `<p>${noteId} content</p>`),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
+    setNoteContent: mock(async () => {}),
+    setNoteTemplate: mock(async () => {}),
+    tagNote: mock(async () => {}),
+    updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
@@ -38,12 +62,26 @@ mock.module("../src/rag/lancedb.ts", () => ({
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({
-    callLLM: mock(async () => ({
-        raw: JSON.stringify({
-            issues: [{ type: "contradiction", severity: "high", description: "Dead character walking", affectedNoteIds: ["note-1", "note-2"] }],
-            summary: "Found a contradiction",
-        })
-    }))
+    buildBrainDumpPrompt: mock(buildBrainDumpPromptMock),
+    callLLM: mock(async (_system: string, _user: string, task?: string) => {
+        if (task === "brain-dump") {
+            return {
+                raw: JSON.stringify({
+                    entities: [{ type: "character", title: "King Arthur", content: "A king.", attributes: {}, action: "create" }],
+                    summary: "Extracted a character",
+                }),
+                tokensUsed: 100,
+                model: "testing-model",
+            };
+        }
+
+        return {
+            raw: JSON.stringify({
+                issues: [{ type: "contradiction", severity: "high", description: "Dead character walking", affectedNoteIds: ["note-1", "note-2"] }],
+                summary: "Found a contradiction",
+            })
+        };
+    })
 }));
 
 const { consistencyRoute } = await import("../src/routes/consistency.ts");

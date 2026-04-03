@@ -9,7 +9,7 @@ mock.module("../../src/pipeline/prompt.ts", () => ({
     buildBrainDumpPrompt: mock(() => ({ system: "sys", context: "ctx", user: "usr" })),
     callLLM: mock(async () => ({
         raw: JSON.stringify({
-            entities: [{ type: "character", title: "King Arthur", content: "A king.", action: "create" }],
+            entities: [{ type: "character", title: "King Arthur", content: "A king.", attributes: {}, action: "create" }],
             summary: "Extracted a character"
         }),
         tokensUsed: 100,
@@ -18,6 +18,7 @@ mock.module("../../src/pipeline/prompt.ts", () => ({
 }));
 
 mock.module("../../src/etapi/client.ts", () => ({
+    getAllCodexNotes: mock(async () => []),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     setNoteTemplate: mock(async () => {}),
     tagNote: mock(async () => {}),
@@ -31,6 +32,7 @@ mock.module("../../src/db/client.ts", () => ({
             findUnique: mock(async () => null)
         },
         brainDumpHistory: {
+            findFirst: mock(async () => null),
             create: mock(async () => ({ id: "history-1" }))
         }
     }

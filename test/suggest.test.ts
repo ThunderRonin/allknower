@@ -11,6 +11,22 @@ let autocompleteSemanticResults = [
     { noteId: "semantic-1", noteTitle: "Aether Archive", content: "Lore", distance: 0.02 },
 ];
 
+async function buildBrainDumpPromptMock(
+    rawText: string,
+    ragContext: Array<{ noteTitle: string; content: string }>
+) {
+    const context = ragContext.length > 0
+        ? ragContext.map((chunk) => `### ${chunk.noteTitle}\n${chunk.content}`).join("\n\n")
+        : "No existing lore found";
+
+    return {
+        system: "You are the lore architect",
+        context,
+        user: rawText,
+        admittedChunks: ragContext,
+    };
+}
+
 mock.module("../src/plugins/auth-guard.ts", () => ({
     requireAuth: requireAuthBypass
 }));
@@ -38,13 +54,23 @@ mock.module("../src/rag/lancedb.ts", () => ({
 
 mock.module("../src/etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
+    createAttribute: mock(async () => ({})),
+    createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
+    createRelation: mock(async () => {}),
     getAllCodexNotes: mock(async () => [
         { noteId: "1", title: "Aria", attributes: [{ name: "loreType", value: "character", type: "label" }] },
         { noteId: "2", title: "Citadel", attributes: [{ name: "loreType", value: "location", type: "label" }] },
-    ])
+    ]),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
+    getNoteContent: mock(async (noteId: string) => `<p>${noteId} content</p>`),
+    setNoteContent: mock(async () => {}),
+    setNoteTemplate: mock(async () => {}),
+    tagNote: mock(async () => {}),
+    updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({
+    buildBrainDumpPrompt: mock(buildBrainDumpPromptMock),
     callLLM: mock(async (_system: string, _user: string, task: string) => {
         if (task === "gap-detect") {
             return {
@@ -52,6 +78,17 @@ mock.module("../src/pipeline/prompt.ts", () => ({
                     gaps: [{ area: "Factions", severity: "medium", description: "Thin political coverage", suggestion: "Add a rival guild." }],
                     summary: "Needs more factions",
                 })
+            };
+        }
+
+        if (task === "brain-dump") {
+            return {
+                raw: JSON.stringify({
+                    entities: [{ type: "character", title: "King Arthur", content: "A king.", attributes: {}, action: "create" }],
+                    summary: "Extracted a character",
+                }),
+                tokensUsed: 100,
+                model: "testing-model",
             };
         }
 

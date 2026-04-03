@@ -1,53 +1,32 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { requireAuthBypass } from "./helpers/auth.ts";
 import { requestJson } from "./helpers/http.ts";
+import { createBrainDumpRoute } from "../src/routes/brain-dump.ts";
 
-mock.module("../src/plugins/auth-guard.ts", () => ({
-    requireAuth: requireAuthBypass
-}));
-
-mock.module("../src/env.ts", () => ({
-    env: {
+const app = new Elysia().use(createBrainDumpRoute({
+    requireAuthImpl: requireAuthBypass,
+    rateLimitEnv: {
         BRAIN_DUMP_RATE_LIMIT_MAX: 10,
         BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
-    }
-}));
-
-mock.module("../src/pipeline/brain-dump.ts", () => ({
-    runBrainDump: mock(async (rawText: string, mode: string) => ({
+    },
+    runBrainDumpImpl: async (rawText: string, mode: "auto" | "review" | "inbox" = "auto") => ({
         mode,
         summary: `Processed ${rawText.length} chars`,
-        created: [{ noteId: "note-1", title: "Archivist", type: "character", action: "created" }],
+        created: [{ noteId: "note-1", title: "Archivist", type: "character" as const }],
         updated: [],
         skipped: [],
         reindexIds: ["note-1"],
-    })),
-    commitReviewedEntities: mock(async () => ({
+    }),
+    commitReviewedEntitiesImpl: async () => ({
         summary: "Committed entities",
         created: [],
         updated: [],
         skipped: [],
         reindexIds: [],
-    })),
+    }),
+    indexNoteImpl: async () => {},
 }));
-
-mock.module("../src/rag/indexer.ts", () => ({
-    indexNote: async () => {}
-}));
-
-mock.module("../src/db/client.ts", () => ({
-    default: {
-        brainDumpHistory: {
-            findMany: mock(async () => []),
-            findUnique: mock(async () => null),
-        },
-    }
-}));
-
-const { brainDumpRoute } = await import("../src/routes/brain-dump.ts");
-
-const app = new Elysia().use(brainDumpRoute);
 
 describe("Brain dump routes", () => {
     it("POST /brain-dump accepts valid input and returns a result", async () => {
