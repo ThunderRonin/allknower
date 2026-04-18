@@ -29,7 +29,10 @@ export function createBrainDumpRoute({
             max: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_MAX,
             duration: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(
-                JSON.stringify({ error: "Rate limit exceeded. Brain dump is limited to 10 requests per minute." }),
+                JSON.stringify({
+                    error: "Rate limit exceeded. Brain dump is limited to 10 requests per minute.",
+                    code: "RATE_LIMITED",
+                }),
                 { status: 429, headers: { "Content-Type": "application/json" } }
             ),
         })
@@ -145,7 +148,7 @@ export function createBrainDumpRoute({
             });
             if (!entry) {
                 set.status = 404;
-                return { error: "Brain dump entry not found" };
+                return { error: "Brain dump entry not found", code: "ENTRY_NOT_FOUND" };
             }
             // Extract summary from parsedJson if present
             const parsed = entry.parsedJson as Record<string, unknown> | null;

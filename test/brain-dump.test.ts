@@ -64,4 +64,49 @@ describe("Brain dump routes", () => {
 
         expect(status).toBe(422);
     });
+
+    it("rate limit error response contains a code field", async () => {
+        const limited = new Elysia().use(createBrainDumpRoute({
+            requireAuthImpl: requireAuthBypass,
+            rateLimitEnv: {
+                BRAIN_DUMP_RATE_LIMIT_MAX: 0,
+                BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
+            },
+            runBrainDumpImpl: async () => ({ mode: "auto" as const, summary: "", created: [], updated: [], skipped: [] }),
+            commitReviewedEntitiesImpl: async () => ({ summary: "", created: [], updated: [], skipped: [] }),
+            indexNoteImpl: async () => {},
+        }));
+
+        const res = await limited.handle(
+            new Request("http://localhost/brain-dump/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rawText: "The archivist buried a fragment beneath the obsidian gate." }),
+            })
+        );
+
+        expect(res.status).toBe(429);
+        const body = await res.json();
+        expect(body).toHaveProperty("code");
+        expect(body.code).toBe("RATE_LIMITED");
+    });
+
+    it("history/:id returns 404 with code NOT_FOUND for unknown id", async () => {
+        const app = new Elysia().use(createBrainDumpRoute({
+            requireAuthImpl: requireAuthBypass,
+            rateLimitEnv: { BRAIN_DUMP_RATE_LIMIT_MAX: 10, BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000 },
+            runBrainDumpImpl: async () => ({ mode: "auto" as const, summary: "", created: [], updated: [], skipped: [] }),
+            commitReviewedEntitiesImpl: async () => ({ summary: "", created: [], updated: [], skipped: [] }),
+            indexNoteImpl: async () => {},
+        }));
+
+        const res = await app.handle(
+            new Request("http://localhost/brain-dump/history/does-not-exist-at-all-xyz")
+        );
+
+        expect(res.status).toBe(404);
+        const body = await res.json();
+        expect(body).toHaveProperty("code");
+        expect(body.code).toBe("ENTRY_NOT_FOUND");
+    });
 });
