@@ -21,6 +21,15 @@ const coerceToString = z
     .transform((v) => (Array.isArray(v) ? v.join(", ") : v))
     .optional();
 
+/**
+ * LLMs frequently return comma-separated strings for fields we want as string arrays (members, allies, etc.).
+ * This coerces string → string[], passes string arrays through.
+ */
+const coerceToArray = z
+    .union([z.array(z.string()), z.string()])
+    .transform((v) => (typeof v === "string" ? v.split(",").map((s) => s.trim()).filter(Boolean) : v))
+    .optional();
+
 // ── Shared ────────────────────────────────────────────────────────────────────
 
 export const LoreEntityTypeSchema = z.enum([
@@ -60,7 +69,7 @@ const BaseLoreEntitySchema = z.object({
 
 export const CharacterAttributesSchema = z.object({
     fullName: z.string().optional(),
-    aliases: z.array(z.string()).optional(),
+    aliases: coerceToArray,
     age: z.string().optional(),
     race: z.string().optional(),
     gender: z.string().optional(),
@@ -82,7 +91,7 @@ export const LocationAttributesSchema = z.object({
     history: z.string().optional(),
     notableLandmarks: coerceToString,
     secrets: z.string().optional(),
-    connectedLocations: z.array(z.string()).optional(),
+    connectedLocations: coerceToArray,
 });
 
 export const FactionAttributesSchema = z.object({
@@ -90,9 +99,9 @@ export const FactionAttributesSchema = z.object({
     foundingDate: z.string().optional(),
     leader: z.string().optional(),
     goals: coerceToString,
-    members: z.array(z.string()).optional(),
-    allies: z.array(z.string()).optional(),
-    enemies: z.array(z.string()).optional(),
+    members: coerceToArray,
+    allies: coerceToArray,
+    enemies: coerceToArray,
     secrets: z.string().optional(),
     hierarchy: coerceToString,
 });
@@ -121,7 +130,7 @@ export const CreatureAttributesSchema = StatblockFieldsSchema.extend({
 
 export const EventAttributesSchema = z.object({
     inWorldDate: z.string().optional(),
-    participants: z.array(z.string()).optional(),
+    participants: coerceToArray,
     location: z.string().optional(),
     outcome: z.string().optional(),
     consequences: coerceToString,
@@ -131,7 +140,7 @@ export const EventAttributesSchema = z.object({
 export const TimelineAttributesSchema = z.object({
     startDate: z.string().optional(),
     endDate: z.string().optional(),
-    events: z.array(z.string()).optional(), // Event note IDs
+    events: coerceToArray, // Event note IDs
 });
 
 export const ManuscriptAttributesSchema = z.object({
@@ -190,7 +199,7 @@ export const OrganizationAttributesSchema = z.object({
     foundingDate: z.string().optional(),
     leader: z.string().optional(),
     headquarters: z.string().optional(),
-    members: z.array(z.string()).optional(),
+    members: coerceToArray,
     resources: coerceToString,
     secrets: z.string().optional(),
     status: z.string().optional(),
@@ -201,7 +210,7 @@ export const RaceAttributesSchema = z.object({
     homeland: z.string().optional(),
     physicalTraits: coerceToString,
     culture: z.string().optional(),
-    languages: z.array(z.string()).optional(),
+    languages: coerceToArray,
     lifespan: z.string().optional(),
     abilities: coerceToString,
     relations: coerceToString,
@@ -221,7 +230,7 @@ export const CosmologyAttributesSchema = z.object({
     domain: z.string().optional(),
     laws: coerceToString,
     source: z.string().optional(),
-    planes: z.array(z.string()).optional(),
+    planes: coerceToArray,
     interactions: coerceToString,
     secrets: z.string().optional(),
 });
@@ -232,8 +241,8 @@ export const DeityAttributesSchema = z.object({
     rank: z.string().optional(),
     symbol: z.string().optional(),
     worshippers: coerceToString,
-    allies: z.array(z.string()).optional(),
-    enemies: z.array(z.string()).optional(),
+    allies: coerceToArray,
+    enemies: coerceToArray,
     secrets: z.string().optional(),
 });
 

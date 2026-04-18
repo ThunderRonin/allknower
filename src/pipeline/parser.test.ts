@@ -49,4 +49,40 @@ describe("parser", () => {
         expect(result.entities.length).toBe(1); // Dropped the bad one
         expect(result.entities[0].title).toBe("Arthur");
     });
+
+    it("should coerce comma-string faction fields into arrays (LLM formatting quirk)", () => {
+        // LLMs often return members/allies/enemies as comma-separated strings instead of arrays.
+        // The coerceToArray helper in lore.ts should handle this gracefully.
+        const json = JSON.stringify({
+            entities: [
+                {
+                    type: "faction",
+                    title: "Übermenschreich",
+                    content: "<p>A militarized technocratic superpower.</p>",
+                    attributes: {
+                        members: "The Chancellor, The General Council",
+                        allies: "Iron Pact",
+                        enemies: "The Free Cities, The Wanderers",
+                        factionType: "Empire",
+                    },
+                    action: "create"
+                }
+            ],
+            summary: "Extracted a faction with string-formatted arrays."
+        });
+
+        const result = parseBrainDumpResponse(json);
+        expect(result.entities.length).toBe(1);
+
+        const faction = result.entities[0];
+        expect(faction.title).toBe("Übermenschreich");
+        // @ts-expect-error — accessing typed attributes union
+        expect(Array.isArray(faction.attributes.members)).toBe(true);
+        // @ts-expect-error
+        expect(faction.attributes.members).toEqual(["The Chancellor", "The General Council"]);
+        // @ts-expect-error
+        expect(Array.isArray(faction.attributes.allies)).toBe(true);
+        // @ts-expect-error
+        expect(faction.attributes.enemies).toEqual(["The Free Cities", "The Wanderers"]);
+    });
 });

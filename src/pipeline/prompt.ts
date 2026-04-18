@@ -126,7 +126,8 @@ Return a JSON object with this exact shape:
 - Secrets (GM-only info, hidden plot hooks, twists) go in the "secrets" attribute, NOT in the main content.
 - The "content" field is narrative HTML the user reads — write it as worldbuilding prose, not a bulleted attribute list.
 - When a brain dump mentions multiple distinct entities, split them out. One entity per concept.
-- Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
+- Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
+- If you run out of space, prioritize closing the JSON structure correctly over adding more entities. NEVER leave a JSON string or object truncated.`;
 
 /**
  * Build the structured prompt for the brain dump pipeline.
@@ -238,7 +239,7 @@ export async function callLLM(
 
     return callWithFallback(task, messages, {
         temperature: 0.3, // low temp for more deterministic output
-        maxTokens: 65536, // set high maxTokens to avoid truncation of long outputs
+        maxTokens: 30000, // matched to primary model (Grok) limits to avoid provider-side truncation
         responseFormat,
     });
 }

@@ -9,6 +9,7 @@ import {
     tagNote,
     createAttribute,
     getAllCodexNotes,
+    probeAllCodex,
 } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
@@ -81,6 +82,13 @@ export async function runBrainDump(
         return { mode: "inbox", queued: true };
     }
 
+    // Preflight: verify AllCodex is reachable and the ETAPI token is valid before
+    // spending LLM tokens on a run that will fail to write anything.
+    const allcodexProbe = await probeAllCodex();
+    if (!allcodexProbe.ok) {
+        throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
+    }
+
     // Idempotency: hash the raw text and check for a recent identical brain dump
     const rawTextHash = Buffer.from(
         await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawText))
@@ -110,7 +118,14 @@ export async function runBrainDump(
     }
 
     // Step 1: RAG context retrieval — general + statblock-grounded
-    const ragContext = await queryLore(rawText, 10);
+    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
+    try {
+        ragContext = await queryLore(rawText, 10);
+    } catch (e: unknown) {
+        rootLogger.warn("General RAG retrieval failed, continuing without context", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
 
     // Statblock-grounded retrieval: fetch statblock noteIds from AllCodex and scope a secondary query to them.
     // This grounds creature/NPC generation against existing homebrew statblocks automatically.
@@ -135,6 +150,7 @@ export async function runBrainDump(
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
     const { raw, tokensUsed, model } = await callLLM(system, user, "brain-dump", context);
+
 
     // Step 4: Parse response
     const { entities, summary } = parseBrainDumpResponse(raw);
@@ -180,6 +196,11 @@ export async function commitReviewedEntities(
     rawText: string,
     approvedEntities: ProposedEntity[]
 ): Promise<BrainDumpResult & { reindexIds: string[] }> {
+    const allcodexProbe = await probeAllCodex();
+    if (!allcodexProbe.ok) {
+        throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
+    }
+
     const rawTextHash = Buffer.from(
         await crypto.subtle.digest("SHA-256", new TextEncoder().encode("commit:" + rawText))
     ).toString("hex");
@@ -321,18 +342,21 @@ async function _writeEntitiesToAllCodex(
         }
     }
 
-    // Persist to history
-    await prisma.brainDumpHistory.create({
-        data: {
-            rawText,
-            rawTextHash,
-            parsedJson: JSON.parse(JSON.stringify({ entities, summary })),
-            notesCreated: created.map((n) => n.noteId),
-            notesUpdated: updated.map((n) => n.noteId),
-            model,
-            tokensUsed,
-        },
-    });
+    // Persist to history — only cache runs that actually wrote something,
+    // so failed runs (e.g. AllCodex down) can be retried with the same text.
+    if (created.length > 0 || updated.length > 0) {
+        await prisma.brainDumpHistory.create({
+            data: {
+                rawText,
+                rawTextHash,
+                parsedJson: JSON.parse(JSON.stringify({ entities, summary })),
+                notesCreated: created.map((n) => n.noteId),
+                notesUpdated: updated.map((n) => n.noteId),
+                model,
+                tokensUsed,
+            },
+        });
+    }
 
     return {
         summary,

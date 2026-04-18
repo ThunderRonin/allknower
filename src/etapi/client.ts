@@ -8,23 +8,74 @@
  */
 
 import { env } from "../env.ts";
+import prisma from "../db/client.ts";
 
-const BASE_URL = env.ALLCODEX_URL;
-const TOKEN = env.ALLCODEX_ETAPI_TOKEN;
+// ── Credential cache ─────────────────────────────────────────────────────────
+// Credentials are loaded from AppConfig (DB) with a 60-second TTL, falling back
+// to env vars. This allows the portal to update AllCodex credentials at runtime
+// without restarting AllKnower.
 
-const AUTH_HEADER = TOKEN;
+let _credCache: { url: string; token: string } | null = null;
+let _credCacheAt = 0;
+const CRED_TTL_MS = 60_000;
 
-const DEFAULT_HEADERS = {
-    Authorization: AUTH_HEADER,
-    "Content-Type": "application/json",
-};
+export function invalidateCredentialCache(): void {
+    _credCache = null;
+    _credCacheAt = 0;
+}
+
+async function getCredentials(): Promise<{ url: string; token: string }> {
+    const now = Date.now();
+    if (_credCache && now - _credCacheAt < CRED_TTL_MS) return _credCache;
+    try {
+        const [urlRecord, tokenRecord] = await Promise.all([
+            prisma.appConfig.findUnique({ where: { key: "allcodexUrl" } }),
+            prisma.appConfig.findUnique({ where: { key: "allcodexToken" } }),
+        ]);
+        const url = urlRecord?.value || env.ALLCODEX_URL;
+        const token = tokenRecord?.value || env.ALLCODEX_ETAPI_TOKEN;
+        _credCache = { url, token };
+        _credCacheAt = now;
+        return _credCache;
+    } catch {
+        // DB unavailable — fall back to env
+        return { url: env.ALLCODEX_URL, token: env.ALLCODEX_ETAPI_TOKEN };
+    }
+}
+
+/**
+ * Lightweight connectivity check — verifies the ETAPI token is valid.
+ * Returns { ok: true } or { ok: false, error: string }.
+ */
+export async function probeAllCodex(): Promise<{ ok: boolean; error?: string }> {
+    let url: string;
+    let token: string;
+    try {
+        ({ url, token } = await getCredentials());
+    } catch {
+        return { ok: false, error: "Failed to load AllCodex credentials" };
+    }
+    if (!token) return { ok: false, error: "ALLCODEX_ETAPI_TOKEN is not configured" };
+    try {
+        const res = await fetch(`${url}/etapi/app-info`, {
+            headers: { Authorization: token },
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return { ok: false, error: `AllCodex ETAPI returned HTTP ${res.status}` };
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, error: `AllCodex unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    }
+}
 
 async function etapiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+    const { url: BASE_URL, token: TOKEN } = await getCredentials();
     const url = `${BASE_URL}/etapi${path}`;
     const res = await fetch(url, {
         ...options,
         headers: {
-            ...DEFAULT_HEADERS,
+            Authorization: TOKEN,
+            "Content-Type": "application/json",
             ...(options.headers ?? {}),
         },
     });

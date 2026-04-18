@@ -15,6 +15,13 @@ const TABLE_NAME = "lore_embeddings";
 let _db: lancedb.Connection | null = null;
 let _table: lancedb.Table | null = null;
 
+/** For testing only — resets the singleton connection so the next
+ *  getTable() call creates a fresh DB at the current LANCEDB_PATH. */
+export function _resetConnection(): void {
+    _db = null;
+    _table = null;
+}
+
 /**
  * Get (or create) the LanceDB connection and lore_embeddings table.
  * LanceDB is embedded — no separate server needed.
