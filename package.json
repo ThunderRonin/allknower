@@ -13,7 +13,9 @@
         "db:migrate:prod": "bunx prisma migrate deploy",
         "db:studio": "bunx prisma studio",
         "db:reset": "bunx prisma migrate reset",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "test": "bun test",
+        "check": "tsc --noEmit && bun test"
     },
     "dependencies": {
         "@bogeychan/elysia-etag": "^0.1.0",
