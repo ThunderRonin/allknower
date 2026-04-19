@@ -26,6 +26,7 @@ mock.module("../etapi/client.ts", () => ({
     setNoteTemplate: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId })),
+    probeAllCodex: mock(async () => ({ ok: true })),
 }));
 
 mock.module("./lancedb.ts", () => ({
@@ -37,7 +38,7 @@ mock.module("./lancedb.ts", () => ({
 }));
 
 const mockPrismaRagUpsert = mock(async () => ({}));
-const mockPrismaFindMany = mock(async () => []);
+const mockPrismaFindMany = mock(async (): Promise<{ noteId: string; embeddedAt: Date }[]> => []);
 
 mock.module("../db/client.ts", () => ({
     default: {

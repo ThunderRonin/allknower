@@ -7,9 +7,6 @@ import { callWithFallback } from "../pipeline/model-router.ts";
 import { rootLogger } from "../logger.ts";
 import { mkdirSync } from "node:fs";
 
-const DB_PATH = env.LANCEDB_PATH;
-// Ensure the directory exists before LanceDB tries to benchmark I/O against it
-mkdirSync(DB_PATH, { recursive: true });
 const TABLE_NAME = "lore_embeddings";
 
 let _db: lancedb.Connection | null = null;
@@ -25,11 +22,17 @@ export function _resetConnection(): void {
 /**
  * Get (or create) the LanceDB connection and lore_embeddings table.
  * LanceDB is embedded — no separate server needed.
+ *
+ * Reads env.LANCEDB_PATH dynamically so that _resetConnection() followed by
+ * a mock.module("../env.ts", …) change in tests picks up the new path.
  */
 export async function getTable(): Promise<lancedb.Table> {
     if (_table) return _table;
 
-    _db = await lancedb.connect(DB_PATH);
+    const dbPath = env.LANCEDB_PATH;
+    // Ensure the directory exists before LanceDB tries to connect
+    mkdirSync(dbPath, { recursive: true });
+    _db = await lancedb.connect(dbPath);
 
     const existingTables = await _db.tableNames();
 

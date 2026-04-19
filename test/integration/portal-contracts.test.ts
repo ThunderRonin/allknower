@@ -33,6 +33,8 @@ mock.module("../../src/etapi/client.ts", () => ({
     searchNotes: mock(async () => []),
     getNote: mock(async () => ({ noteId: "note-abc", title: "Arwen", type: "text" })),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 const HISTORY_ENTRY = {

@@ -6,7 +6,7 @@
         "strict": true,
         "skipLibCheck": true,
         "outDir": "dist",
-        "rootDir": "src",
+        "rootDir": ".",
         "esModuleInterop": true,
         "allowImportingTsExtensions": true,
         "noEmit": true,
@@ -15,7 +15,8 @@
         ]
     },
     "include": [
-        "src/**/*"
+        "src/**/*",
+        "test/**/*"
     ],
     "exclude": [
         "node_modules",

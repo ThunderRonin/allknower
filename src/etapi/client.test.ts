@@ -39,11 +39,12 @@ type FetchSpy = Mock<typeof globalThis.fetch>;
 function mockFetch(body: unknown, status = 200, contentType = "application/json"): FetchSpy {
     const responseText = contentType === "application/json" ? JSON.stringify(body) : String(body);
     // Use mockImplementation so each call gets a fresh Response (body can only be consumed once)
-    const spy = spyOn(globalThis, "fetch").mockImplementation(async () =>
-        new Response(responseText, {
-            status,
-            headers: { "Content-Type": contentType },
-        })
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+        (async () =>
+            new Response(responseText, {
+                status,
+                headers: { "Content-Type": contentType },
+            })) as unknown as typeof fetch
     );
     return spy as FetchSpy;
 }
