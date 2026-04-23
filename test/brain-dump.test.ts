@@ -50,8 +50,8 @@ mock.module("../src/db/client.ts", () => ({
 
 mock.module("../src/rag/indexer.ts", () => ({
     indexNote: mock(async () => {}),
-    reindexAll: mock(async () => ({ indexed: 0, failed: 0 })),
-    reindexStale: mock(async () => ({ reindexed: 0, failed: 0, upToDate: 0 })),
+    fullReindex: mock(async () => ({ indexed: 0, failed: 0 })),
+    reindexStaleNotes: mock(async () => ({ reindexed: 0, failed: 0, upToDate: 0 })),
 }));
 
 import { describe, expect, it } from "bun:test";
