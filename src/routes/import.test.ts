@@ -1,4 +1,5 @@
 import { mock } from "bun:test";
+import { requireAuthBypass } from "../../test/helpers/auth.ts";
 
 let noteIdCounter = 0;
 const mockCreateNote = mock(async (params: any) => ({
@@ -49,10 +50,10 @@ mock.module("../db/client.ts", () => ({
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
-import { importRoute } from "./import.ts";
+import { createImportRoute } from "./import.ts";
 import { requestJson } from "../../test/helpers/http.ts";
 
-const app = new Elysia().use(importRoute);
+const app = new Elysia().use(createImportRoute({ requireAuthImpl: requireAuthBypass }));
 
 beforeEach(() => {
     noteIdCounter = 0;

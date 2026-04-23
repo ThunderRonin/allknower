@@ -23,15 +23,12 @@ const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 type DuplicateMatch = { noteId: string; title: string; score: number };
 type DuplicateInfo = { proposedTitle: string; proposedType: string; matches: DuplicateMatch[] };
 
-async function findDuplicates(title: string, type: string): Promise<DuplicateMatch[]> {
+async function findDuplicates(title: string, _type: string): Promise<DuplicateMatch[]> {
     try {
         const results = await queryLore(title, 5);
         return results
-            .filter((r) => (r as unknown as { score: number }).score > DUPLICATE_SIMILARITY_THRESHOLD)
-            .map((r: unknown) => {
-                const entry = r as { noteId: string; title: string; score: number };
-                return { noteId: entry.noteId, title: entry.title, score: entry.score };
-            });
+            .filter((r) => r.score > DUPLICATE_SIMILARITY_THRESHOLD)
+            .map((r) => ({ noteId: r.noteId, title: r.noteTitle, score: r.score }));
     } catch {
         return [];
     }

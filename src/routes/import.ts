@@ -7,6 +7,7 @@ import {
 } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
 import { importAzgaarMap, isAzgaarMapData, getMapPreview } from "../pipeline/azgaar.ts";
+import { requireAuth } from "../plugins/auth-guard.ts";
 
 const StatblockEntrySchema = t.Object({
     name: t.String(),
@@ -56,7 +57,9 @@ const ATTR_MAP: Array<[keyof StatblockEntry, string]> = [
     ["legendaryActions", "legendaryActions"],
 ];
 
-export const importRoute = new Elysia({ name: "import" })
+export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAuthImpl?: typeof requireAuth } = {}) {
+    return new Elysia({ name: "import" })
+    .use(requireAuthImpl)
     .post(
         "/import/system-pack",
         async ({ body }) => {
@@ -254,3 +257,6 @@ export const importRoute = new Elysia({ name: "import" })
             },
         }
     );
+}
+
+export const importRoute = createImportRoute();

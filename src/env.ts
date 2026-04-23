@@ -109,6 +109,17 @@ export const envSchema = z.object({
         .optional()
         .default(60000)
         .pipe(z.number().positive()),
+
+    AI_RATE_LIMIT_MAX: z.coerce
+        .number()
+        .optional()
+        .default(20)
+        .pipe(z.number().positive()),
+    AI_RATE_LIMIT_WINDOW_MS: z.coerce
+        .number()
+        .optional()
+        .default(60000)
+        .pipe(z.number().positive()),
 });
 
 export type Env = z.infer<typeof envSchema>;

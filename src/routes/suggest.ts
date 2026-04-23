@@ -1,8 +1,10 @@
 import Elysia, { t } from "elysia";
+import { rateLimit } from "elysia-rate-limit";
 import { queryLore } from "../rag/lancedb.ts";
 import { getAllCodexNotes } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { env } from "../env.ts";
 import prisma from "../db/client.ts";
 import { suggestRelationsForNote, applyRelations } from "../pipeline/relations.ts";
 import { GAP_DETECT_SYSTEM } from "../pipeline/prompts/gap-detect.ts";
@@ -13,6 +15,19 @@ import { rootLogger } from "../logger.ts";
 
 export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .use(requireAuth)
+    .use(
+        rateLimit({
+            max: env.AI_RATE_LIMIT_MAX,
+            duration: env.AI_RATE_LIMIT_WINDOW_MS,
+            errorResponse: new Response(
+                JSON.stringify({
+                    error: "Rate limit exceeded for AI tools.",
+                    code: "RATE_LIMITED",
+                }),
+                { status: 429, headers: { "Content-Type": "application/json" } }
+            ),
+        })
+    )
     /**
      * Relationship suggester — given a note, find semantically similar lore
      * and ask the LLM to suggest meaningful connections.
@@ -189,24 +204,28 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 }
             }
 
-            // Phase 3: LLM creative completion when prefix + semantic came up empty
+            // Phase 3: LLM creative completion — only when the index has enough notes to ground against
             if (suggestions.length < Math.min(3, limit)) {
-                try {
-                    const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
-                    const parsed = JSON.parse(raw);
-                    for (const s of (parsed.suggestions ?? [])) {
-                        if (suggestions.length >= limit) break;
-                        const matches = await prisma.ragIndexMeta.findMany({
-                            where: { noteTitle: { contains: s.title, mode: "insensitive" } },
-                            take: 1,
-                            select: { noteId: true, noteTitle: true },
-                        });
-                        if (matches.length > 0 && !seen.has(matches[0].noteId)) {
-                            suggestions.push({ noteId: matches[0].noteId, title: matches[0].noteTitle });
-                            seen.add(matches[0].noteId);
+                const MIN_INDEX_SIZE_FOR_LLM_AUTOCOMPLETE = 5;
+                const indexCount = await prisma.ragIndexMeta.count();
+                if (indexCount >= MIN_INDEX_SIZE_FOR_LLM_AUTOCOMPLETE) {
+                    try {
+                        const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
+                        const parsed = JSON.parse(raw);
+                        for (const s of (parsed.suggestions ?? [])) {
+                            if (suggestions.length >= limit) break;
+                            const matches = await prisma.ragIndexMeta.findMany({
+                                where: { noteTitle: { contains: s.title, mode: "insensitive" } },
+                                take: 1,
+                                select: { noteId: true, noteTitle: true },
+                            });
+                            if (matches.length > 0 && !seen.has(matches[0].noteId)) {
+                                suggestions.push({ noteId: matches[0].noteId, title: matches[0].noteTitle });
+                                seen.add(matches[0].noteId);
+                            }
                         }
-                    }
-                } catch { /* LLM autocomplete is best-effort */ }
+                    } catch { /* LLM autocomplete is best-effort */ }
+                }
             }
 
             return { suggestions };

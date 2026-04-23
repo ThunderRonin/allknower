@@ -1,8 +1,10 @@
 import Elysia, { t } from "elysia";
+import { rateLimit } from "elysia-rate-limit";
 import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { queryLore } from "../rag/lancedb.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { env } from "../env.ts";
 import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
 import { ConsistencyResponseSchema } from "../pipeline/schemas/response-schemas.ts";
@@ -24,6 +26,19 @@ const MAX_NOTE_CHARS = 2000;
 
 export const consistencyRoute = new Elysia({ prefix: "/consistency" })
     .use(requireAuth)
+    .use(
+        rateLimit({
+            max: env.AI_RATE_LIMIT_MAX,
+            duration: env.AI_RATE_LIMIT_WINDOW_MS,
+            errorResponse: new Response(
+                JSON.stringify({
+                    error: "Rate limit exceeded for AI tools.",
+                    code: "RATE_LIMITED",
+                }),
+                { status: 429, headers: { "Content-Type": "application/json" } }
+            ),
+        })
+    )
     .post(
     "/check",
     async ({ body }) => {

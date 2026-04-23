@@ -243,10 +243,3 @@ export async function callLLM(
         responseFormat,
     });
 }
-
-/**
- * @deprecated Use callLLM with task="brain-dump" instead.
- * Kept for backwards compatibility with existing callers.
- */
-export const callClaude = (system: string, user: string) =>
-    callLLM(system, user, "brain-dump");

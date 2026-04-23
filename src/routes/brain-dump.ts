@@ -104,11 +104,15 @@ export function createBrainDumpRoute({
     )
     .get(
         "/history",
-        async () => {
+        async ({ query }) => {
             const { default: prisma } = await import("../db/client.ts");
+            const limit = Math.min(Number(query.limit ?? 20), 100);
+            const cursor = query.cursor;
+
             const history = await prisma.brainDumpHistory.findMany({
                 orderBy: { createdAt: "desc" },
-                take: 20,
+                take: limit + 1,
+                ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
                 select: {
                     id: true,
                     rawText: true,
@@ -119,12 +123,21 @@ export function createBrainDumpRoute({
                     createdAt: true,
                 },
             });
-            return history;
+
+            const hasMore = history.length > limit;
+            const items = hasMore ? history.slice(0, limit) : history;
+            const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+            return { items, nextCursor, hasMore };
         },
         {
+            query: t.Object({
+                cursor: t.Optional(t.String({ description: "ID of the last item from the previous page (omit for first page)" })),
+                limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, default: 20, description: "Number of items per page (1–100, default 20)" })),
+            }),
             detail: {
                 summary: "Get brain dump history",
-                description: "Returns the last 20 brain dump operations.",
+                description: "Returns a paginated list of brain dump operations. Use nextCursor from the response to fetch the next page.",
                 tags: ["Brain Dump"],
             },
         }

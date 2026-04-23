@@ -57,6 +57,7 @@ mock.module("../../src/db/client.ts", () => ({
         appConfig: { findUnique: mock(async () => null) },
         ragIndexMeta: {
             findMany: mock(async () => []),
+            count: mock(async () => 0),
         },
         brainDumpHistory: {
             create: mock(async () => ({ id: "hist-new" })),
@@ -112,15 +113,17 @@ describe("Portal contracts", () => {
     });
 
     describe("GET /brain-dump/history", () => {
-        it("returns an array with id, rawText, notesCreated (string[]), notesUpdated (string[])", async () => {
+        it("returns paginated { items, nextCursor, hasMore } with correct item shape", async () => {
             const { status, json } = await req("GET", "/brain-dump/history");
             // Auth guard may return 401 in test — that is still a valid shape contract check
             if (status === 401) return; // no session token in test env
             expect(status).toBe(200);
-            const list = json as any[];
-            expect(Array.isArray(list)).toBe(true);
-            if (list.length > 0) {
-                const entry = list[0];
+            const page = json as any;
+            expect(Array.isArray(page.items)).toBe(true);
+            expect("nextCursor" in page).toBe(true);
+            expect(typeof page.hasMore).toBe("boolean");
+            if (page.items.length > 0) {
+                const entry = page.items[0];
                 expect(typeof entry.id).toBe("string");
                 expect(typeof entry.rawText).toBe("string");
                 expect(Array.isArray(entry.notesCreated)).toBe(true);
