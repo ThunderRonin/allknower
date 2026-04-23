@@ -51,6 +51,12 @@ mock.module("../src/etapi/client.ts", () => ({
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    classifyQueryComplexity: mock(() => "simple" as const),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
     queryLore: mock(async () => {
         if (returnNoNotes) {
@@ -60,7 +66,7 @@ mock.module("../src/rag/lancedb.ts", () => ({
         return [
             { noteId: "note-1", noteTitle: "Archivist", content: "Lore chunk", distance: 0.1 },
         ];
-    })
+    }),
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({

@@ -4,10 +4,13 @@ import { mock } from "bun:test";
 // before any import triggers the module graph.  Without these mocks, Bun caches
 // the real modules, which then bleed into later test files (e.g. relations.test.ts).
 mock.module("../src/rag/lancedb.ts", () => ({
-    queryLore: mock(async () => []),
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
     upsertNoteChunks: mock(async () => {}),
-    chunkText: mock(() => []),
+    classifyQueryComplexity: mock(() => "simple" as const),
+    queryLore: mock(async () => []),
     deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
 }));
 

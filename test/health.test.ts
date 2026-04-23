@@ -23,7 +23,14 @@ mock.module("../src/etapi/client.ts", () => ({
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
-    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk }))
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    classifyQueryComplexity: mock(() => "simple" as const),
+    queryLore: mock(async () => []),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
+    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk })),
 }));
 
 mock.module("../src/db/client.ts", () => ({

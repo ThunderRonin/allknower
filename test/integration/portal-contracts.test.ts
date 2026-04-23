@@ -9,11 +9,14 @@ import { describe, expect, it, mock, beforeAll } from "bun:test";
 // ── Module mocks (must be set before importing the app) ───────────────────────
 
 mock.module("../../src/rag/lancedb.ts", () => ({
-    queryLore: mock(async () => []),
-    checkLanceDbHealth: mock(async () => ({ ok: true })),
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
     upsertNoteChunks: mock(async () => {}),
-    chunkText: mock(() => []),
+    classifyQueryComplexity: mock(() => "simple" as const),
+    queryLore: mock(async () => []),
     deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
+    checkLanceDbHealth: mock(async () => ({ ok: true })),
 }));
 
 mock.module("../../src/pipeline/prompt.ts", () => ({

@@ -11,13 +11,19 @@ mock.module("../src/plugins/auth-guard.ts", () => ({
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    classifyQueryComplexity: mock(() => "simple" as const),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     queryLore: mock(async (text: string, topK: number) => {
         lastTopK = topK;
         return [
             { noteId: "note-1", noteTitle: `Result for ${text}`, content: "Lore chunk", distance: 0.01 },
         ];
-    })
+    }),
 }));
 
 mock.module("../src/rag/indexer.ts", () => ({

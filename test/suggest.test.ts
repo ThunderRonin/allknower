@@ -48,8 +48,14 @@ mock.module("../src/pipeline/relations.ts", () => ({
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    classifyQueryComplexity: mock(() => "simple" as const),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
-    queryLore: mock(async () => autocompleteSemanticResults)
+    queryLore: mock(async () => autocompleteSemanticResults),
 }));
 
 mock.module("../src/etapi/client.ts", () => ({
