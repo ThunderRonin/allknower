@@ -1,3 +1,16 @@
+import { mock } from "bun:test";
+
+// model-router.test.ts (alphabetically earlier) mocks env.ts without RAG vars,
+// contaminating this test when both run under bun test src/pipeline/.
+// Re-declare env here so prompt.ts loads with the values it needs.
+mock.module("../env.ts", () => ({
+    env: {
+        RAG_CONTEXT_MAX_TOKENS: 6000,
+        RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD: 0.85,
+        RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: 400,
+    },
+}));
+
 import { describe, expect, it } from "bun:test";
 import { buildBrainDumpPrompt } from "./prompt";
 
