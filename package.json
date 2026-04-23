@@ -14,9 +14,9 @@
     "db:studio": "bunx prisma studio",
     "db:reset": "bunx prisma migrate reset",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test/ && bun test src/etapi/ && bun test src/pipeline/ && bun test src/routes/ && bun test src/rag/indexer.test.ts && bun test src/rag/lancedb.integration.test.ts && bun test src/rag/lancedb.test.ts && bun test src/rag/chunk-compactor.test.ts && bun test src/rag/chunk-dedup.test.ts src/rag/embedder.test.ts",
+    "test": "bun test test/ && bun test src/etapi/ && bun test src/pipeline/ && bun test src/routes/ && bun test src/plugins/ && bun test src/rag/indexer.test.ts && bun test src/rag/lancedb.integration.test.ts && bun test src/rag/lancedb.test.ts && bun test src/rag/chunk-compactor.test.ts && bun test src/rag/chunk-dedup.test.ts src/rag/embedder.test.ts",
     "test:all": "bun test",
-    "check": "tsc --noEmit && bun test test/ && bun test src/etapi/ && bun test src/pipeline/ && bun test src/routes/ && bun test src/rag/indexer.test.ts && bun test src/rag/lancedb.integration.test.ts && bun test src/rag/lancedb.test.ts && bun test src/rag/chunk-compactor.test.ts && bun test src/rag/chunk-dedup.test.ts src/rag/embedder.test.ts"
+    "check": "tsc --noEmit && bun test test/ && bun test src/etapi/ && bun test src/pipeline/ && bun test src/routes/ && bun test src/plugins/ && bun test src/rag/indexer.test.ts && bun test src/rag/lancedb.integration.test.ts && bun test src/rag/lancedb.test.ts && bun test src/rag/chunk-compactor.test.ts && bun test src/rag/chunk-dedup.test.ts src/rag/embedder.test.ts"
   },
   "dependencies": {
     "@bogeychan/elysia-etag": "^0.1.0",
