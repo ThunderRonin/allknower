@@ -11,6 +11,9 @@ import { describe, expect, it, mock, beforeAll } from "bun:test";
 mock.module("../../src/rag/lancedb.ts", () => ({
     queryLore: mock(async () => []),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
+    upsertNoteChunks: mock(async () => {}),
+    chunkText: mock(() => []),
+    deleteNoteChunks: mock(async () => {}),
 }));
 
 mock.module("../../src/pipeline/prompt.ts", () => ({
@@ -35,6 +38,11 @@ mock.module("../../src/etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getAllCodexNotes: mock(async () => []),
+    getNoteContent: mock(async () => ""),
+    setNoteContent: mock(async () => {}),
+    updateNote: mock(async (id: string) => ({ noteId: id })),
+    createRelation: mock(async () => {}),
 }));
 
 const HISTORY_ENTRY = {
@@ -82,6 +90,8 @@ mock.module("../../src/db/client.ts", () => ({
 
 mock.module("../../src/rag/indexer.ts", () => ({
     indexNote: mock(async () => {}),
+    fullReindex: mock(async () => ({ indexed: 0, failed: 0 })),
+    reindexStaleNotes: mock(async () => ({ reindexed: 0, failed: 0, upToDate: 0 })),
 }));
 
 // ── App import (after all mocks) ──────────────────────────────────────────────
