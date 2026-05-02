@@ -45,7 +45,7 @@ AllKnower sits behind AllCodex and provides:
 ### Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.2
-- PostgreSQL
+- PostgreSQL, or Docker for the included `docker-compose.yml`
 - A running AllCodex instance with an ETAPI token
 - An [OpenRouter](https://openrouter.ai) API key
 
@@ -58,19 +58,29 @@ bun install
 # Troubleshooting for limited bandwidth:
 # bun install --network-concurrency 1 --concurrent-scripts 1
 
-# 2. Configure environment
-cp .env.example .env
-# Fill in DATABASE_URL, OPENROUTER_API_KEY, ALLCODEX_ETAPI_TOKEN, BETTER_AUTH_SECRET
+# 2. Start local Postgres
+docker compose up -d postgres
 
-# 3. Run database migrations
+# 3. Configure environment
+cp .env.example .env
+# .env.example already matches docker-compose.yml:
+# DATABASE_URL=postgresql://allknower:allknower@localhost:5432/allknower
+# Fill in OPENROUTER_API_KEY, ALLCODEX_ETAPI_TOKEN, BETTER_AUTH_SECRET
+
+# 4. Run database migrations
 bun db:migrate
 
-# 4. Start the server
+# 5. Start the server
 bun dev
+
+# 6. Check dependency health
+curl http://localhost:3001/health
 ```
 
 Server starts at `http://localhost:3001`.
 API docs at `http://localhost:3001/reference`.
+
+`/health` is a composite dependency check. It returns `503` with `status: "degraded"` until required dependencies such as Postgres, AllCodex Core, and LanceDB are reachable; that is expected during partial local setup.
 
 ---
 
