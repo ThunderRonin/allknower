@@ -69,13 +69,13 @@ model Verification {
 model BrainDumpHistory {
   id           String   @id @default(cuid())
   rawText      String
-  rawTextHash  String?                    // SHA-256 of rawText for idempotency dedup
   parsedJson   Json
   notesCreated String[]
   notesUpdated String[]
   model        String
   tokensUsed   Int?
   createdAt    DateTime @default(now())
+  rawTextHash  String?
 
   @@index([rawTextHash, createdAt])
   @@map("brain_dump_history")
@@ -84,8 +84,8 @@ model BrainDumpHistory {
 model LLMCallLog {
   id         String   @id @default(cuid())
   requestId  String?
-  task       String                       // "brain-dump" | "consistency" | "suggest" | etc.
-  model      String                       // model that actually handled the request
+  task       String
+  model      String
   tokensUsed Int
   latencyMs  Int
   createdAt  DateTime @default(now())
@@ -126,12 +126,10 @@ model RelationHistory {
   @@map("relation_history")
 }
 
-// ── Tier 3: Session state for multi-turn context compaction ───────────────────
-
 model LoreSession {
   id                String               @id @default(cuid())
   title             String?
-  state             Json                 // LoreSessionState
+  state             Json
   tokensAccumulated Int                  @default(0)
   compactionCount   Int                  @default(0)
   compactionFailed  Int                  @default(0)
@@ -146,10 +144,10 @@ model LoreSession {
 model LoreSessionMessage {
   id         String      @id @default(cuid())
   sessionId  String
-  role       String      // "user" | "assistant" | "system"
+  role       String
   content    String
   tokenCount Int         @default(0)
-  metadata   Json?       // { model, latencyMs, ragChunksUsed, compacted: bool }
+  metadata   Json?
   createdAt  DateTime    @default(now())
   session    LoreSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
