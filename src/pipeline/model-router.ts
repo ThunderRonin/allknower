@@ -16,6 +16,7 @@ import type { Logger } from "../logger.ts";
 
 export type TaskType =
     | "brain-dump"
+    | "article-copilot"
     | "consistency"
     | "suggest"
     | "gap-detect"
@@ -49,6 +50,11 @@ export function getModelChain(task: TaskType): string[] {
 
     const chains: Record<TaskType, ModelChain> = {
         "brain-dump": {
+            primary: env.BRAIN_DUMP_MODEL,
+            fallback1: env.BRAIN_DUMP_FALLBACK_1,
+            fallback2: env.BRAIN_DUMP_FALLBACK_2,
+        },
+        "article-copilot": {
             primary: env.BRAIN_DUMP_MODEL,
             fallback1: env.BRAIN_DUMP_FALLBACK_1,
             fallback2: env.BRAIN_DUMP_FALLBACK_2,
@@ -222,4 +228,3 @@ function logLLMCall(
         log.warn("Failed to log LLM call", { error: msg });
     });
 }
-
