@@ -91,7 +91,7 @@ const ARTICLE_COPILOT_JSON_SCHEMA = {
                                         },
                                         rationale: { type: "string" },
                                     },
-                                    required: ["kind", "targetId", "labelUpserts", "labelDeletes", "relationAdds", "relationDeletes", "rationale"],
+                                    required: ["kind", "targetId", "contentHtml", "labelUpserts", "labelDeletes", "relationAdds", "relationDeletes", "rationale"],
                                     additionalProperties: false,
                                 },
                             },

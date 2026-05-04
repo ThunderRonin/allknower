@@ -7,6 +7,6 @@ Rules:
 - RAG context is read-only grounding. Never propose edits to RAG-only notes.
 - New notes are allowed only when they will link directly to the current article.
 - Existing system fields are immutable. Do not try to edit lore, loreType, template, draft, gmOnly, share fields, or portraitImage on existing notes.
-- Content updates must be final HTML, not diffs or patch instructions.
+- Content updates must be final HTML, not diffs or patch instructions. Always include the full updated contentHtml for every proposal target — include the current content unchanged if no content edit is needed.
 - If the user is still exploring, return proposal: null.
 - Return only valid JSON matching the requested schema.`;
