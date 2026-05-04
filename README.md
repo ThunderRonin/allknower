@@ -11,7 +11,8 @@ AllKnower sits behind AllCodex and provides:
 | Feature | Description |
 |---|---|
 | **Brain Dump** | Paste raw worldbuilding notes → LLM extracts structured lore entities → creates/updates notes in AllCodex via ETAPI. Auto-applies high-confidence relation suggestions after creation. |
-| **RAG System** | All lore is embedded via cloud models (Qwen) and stored in LanceDB. Hybrid reranking auto-dispatches between a local Xenova cross-encoder (simple queries) and LLM-as-a-Judge (complex relational queries) for optimal context quality. |
+| **RAG System** | All lore is embedded via cloud models (Qwen) and stored in LanceDB. Reranking via OpenRouter's native `/rerank` endpoint (`cohere/rerank-4-pro`) for second-pass relevance scoring after initial vector retrieval. Falls back to vector similarity on timeout. |
+| **Article Copilot** | Conversational AI assistant scoped to a single lore article. Proposes edits, creates linked notes, and updates labels/relations — all within an explicit writable scope to prevent unintended changes to other notes. |
 | **Lore Autocomplete** | Instant title suggestions via two-phase lookup (SQL prefix match + semantic fallback) for inline linking in AllCodex. |
 | **Consistency Checker** | On-demand scan for contradictions, timeline conflicts, orphaned references, and naming inconsistencies. |
 | **Relationship Suggester** | Suggests connections between entities with `high/medium/low` confidence. High-confidence suggestions are auto-applied to AllCodex on brain dump. |
@@ -30,8 +31,7 @@ AllKnower sits behind AllCodex and provides:
 | Auth | better-auth (supports Bearer + Session) |
 | Vector DB | LanceDB (embedded) |
 | Embeddings | `qwen/qwen3-embedding-8b` via OpenRouter |
-| Reranker (simple) | `Xenova/ms-marco-MiniLM-L-6-v2` (local, ~80MB one-time download) |
-| Reranker (complex) | LLM-as-a-Judge via `RERANK_MODEL` (auto-dispatched) |
+| Reranker | `cohere/rerank-4-pro` via OpenRouter `/rerank` endpoint (not chat completions) |
 | LLM — Brain Dump | `minimax/minimax-m2.5` via OpenRouter |
 | LLM — Consistency | `moonshotai/kimi-k2.5` via OpenRouter |
 | Background Jobs | `elysia-background` (with version 1.2.1 patch) |
@@ -110,7 +110,8 @@ See [`.env.example`](.env.example) for the full list. Required vars:
 | `POST` | `/consistency/check` | Run consistency scan |
 | `POST` | `/suggest/relationships` | Suggest lore connections |
 | `POST` | `/suggest/relationships/apply` | Write suggested relations back to AllCodex |
-| `GET` | `/suggest/gaps` | Detect lore gaps |
+| `GET\|POST` | `/suggest/gaps` | Detect lore gaps |
+| `POST` | `/copilot/article` | Article-scoped copilot turn (returns proposal) |
 | `GET` | `/suggest/autocomplete` | Title autocomplete (prefix + semantic fallback) |
 | `POST` | `/import/azgaar` | Bulk-import locations and factions from an Azgaar FMG export |
 | `GET` | `/health` | Deep service health check (ETAPI, Postgres, LanceDB) |
@@ -135,7 +136,7 @@ src/
 ├── plugins/              # Elysia infrastructure plugins
 ├── rag/
 │   ├── embedder.ts       # Service-agnostic cloud embedder
-│   ├── lancedb.ts        # Vector store + hybrid reranker (Xenova / LLM-as-a-Judge)
+│   ├── lancedb.ts        # Vector store + OpenRouter native reranker
 │   └── indexer.ts        # Index lifecycle management
 ├── routes/               # API route handlers
 └── types/
