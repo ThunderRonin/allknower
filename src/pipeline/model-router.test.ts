@@ -19,9 +19,7 @@ mock.module("../env.ts", () => ({
         AUTOCOMPLETE_MODEL: "liquid/lfm-24b",
         AUTOCOMPLETE_FALLBACK_1: "",
         AUTOCOMPLETE_FALLBACK_2: "",
-        RERANK_MODEL: "openai/gpt-5-nano",
-        RERANK_FALLBACK_1: "",
-        RERANK_FALLBACK_2: "",
+        RERANK_MODEL: "cohere/rerank-4-pro",
         COMPACT_MODEL: "anthropic/claude-haiku-4-5-20251001",
         COMPACT_FALLBACK_1: "openai/gpt-4.1-nano",
         COMPACT_FALLBACK_2: "",
@@ -42,7 +40,6 @@ describe("getModelChain", () => {
         "suggest",
         "gap-detect",
         "autocomplete",
-        "rerank",
         "compact",
         "session-compact",
     ];
