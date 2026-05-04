@@ -13,6 +13,84 @@ import { GAP_DETECT_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas
 import { GapDetectResponseSchema } from "../pipeline/schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
 
+const GAP_DETECT_TIMEOUT_MS = 120_000;
+const GAP_DETECT_MAX_TOKENS = 700;
+const GAP_DETECT_MAX_TYPES_SAMPLED = 8;
+const GAP_DETECT_MAX_PROMOTED_ATTRS = 3;
+const GAP_DETECT_USER_PROMPT =
+    "Analyze this lore corpus against the core worldbuilding pillars. Return at most 5 gaps. Keep each description and suggestion concise.";
+
+async function runGapDetect() {
+    const notes = await getAllCodexNotes("#lore");
+
+    const typeCounts: Record<string, number> = {};
+    const entriesByType: Record<string, Array<{ title: string; noteId: string; snippet: string }>> = {};
+
+    for (const note of notes) {
+        const typeAttr = note.attributes?.find((a: { name: string }) => a.name === "loreType");
+        const type = typeAttr?.value ?? "unknown";
+        typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+
+        if (!entriesByType[type]) entriesByType[type] = [];
+        // Summarize via promoted attributes (content requires a separate API call per note)
+        const promotedAttrs = (note.attributes ?? [])
+            .filter((a: { name: string; type: string }) => a.type === "label" && !a.name.startsWith("label:"))
+            .map((a: { name: string; value: string }) => `${a.name}: ${a.value}`)
+            .slice(0, GAP_DETECT_MAX_PROMOTED_ATTRS)
+            .join(", ");
+        entriesByType[type].push({
+            title: note.title ?? "Untitled",
+            noteId: note.noteId,
+            snippet: promotedAttrs,
+        });
+    }
+
+    // Build a rich context block — not just counts, but a census with substance
+    const contextParts = [`## Lore Census — ${notes.length} total entries\n`];
+
+    for (const [type, entries] of Object.entries(entriesByType)) {
+        contextParts.push(`### ${type} (${entries.length} entries)`);
+        for (const entry of entries.slice(0, GAP_DETECT_MAX_TYPES_SAMPLED)) {
+            const line = entry.snippet
+                ? `- **${entry.title}**: ${entry.snippet}…`
+                : `- **${entry.title}** (no content yet)`;
+            contextParts.push(line);
+        }
+        if (entries.length > GAP_DETECT_MAX_TYPES_SAMPLED) {
+            contextParts.push(`- …and ${entries.length - GAP_DETECT_MAX_TYPES_SAMPLED} more`);
+        }
+        contextParts.push(""); // blank line between types
+    }
+
+    const context = contextParts.join("\n");
+    const user = GAP_DETECT_USER_PROMPT;
+
+    const { raw } = await callLLM(GAP_DETECT_SYSTEM, user, "gap-detect", context, {
+        jsonSchema: GAP_DETECT_JSON_SCHEMA,
+        timeoutMs: GAP_DETECT_TIMEOUT_MS,
+        maxTokens: GAP_DETECT_MAX_TOKENS,
+        temperature: 0.1,
+    });
+
+    let result: unknown;
+    try {
+        const parsed = JSON.parse(raw);
+        const validated = GapDetectResponseSchema.safeParse(parsed);
+        if (validated.success) {
+            result = validated.data;
+        } else {
+            rootLogger.warn("Gap detect response failed validation", {
+                errors: validated.error.issues,
+            });
+            result = { gaps: [], summary: "LLM response failed validation." };
+        }
+    } catch {
+        result = { gaps: [], summary: "Failed to parse gap analysis." };
+    }
+
+    return { ...(result as object), typeCounts, totalNotes: notes.length };
+}
+
 export const suggestRoute = new Elysia({ prefix: "/suggest" })
     .use(requireAuth)
     .use(
@@ -89,73 +167,19 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .get(
         "/gaps",
-        async () => {
-            const notes = await getAllCodexNotes("#lore");
-
-            const typeCounts: Record<string, number> = {};
-            const entriesByType: Record<string, Array<{ title: string; noteId: string; snippet: string }>> = {};
-
-            for (const note of notes) {
-                const typeAttr = note.attributes?.find((a: { name: string }) => a.name === "loreType");
-                const type = typeAttr?.value ?? "unknown";
-                typeCounts[type] = (typeCounts[type] ?? 0) + 1;
-
-                if (!entriesByType[type]) entriesByType[type] = [];
-                // Summarize via promoted attributes (content requires a separate API call per note)
-                const promotedAttrs = (note.attributes ?? [])
-                    .filter((a: { name: string; type: string }) => a.type === "label" && !a.name.startsWith("label:"))
-                    .map((a: { name: string; value: string }) => `${a.name}: ${a.value}`)
-                    .slice(0, 5)
-                    .join(", ");
-                entriesByType[type].push({
-                    title: note.title ?? "Untitled",
-                    noteId: note.noteId,
-                    snippet: promotedAttrs,
-                });
-            }
-
-            // Build a rich context block — not just counts, but a census with substance
-            let contextParts = [`## Lore Census — ${notes.length} total entries\n`];
-
-            for (const [type, entries] of Object.entries(entriesByType)) {
-                contextParts.push(`### ${type} (${entries.length} entries)`);
-                for (const entry of entries.slice(0, 20)) { // Cap at 20 per type to stay within context limits
-                    const line = entry.snippet
-                        ? `- **${entry.title}**: ${entry.snippet}…`
-                        : `- **${entry.title}** (no content yet)`;
-                    contextParts.push(line);
-                }
-                if (entries.length > 20) {
-                    contextParts.push(`- …and ${entries.length - 20} more`);
-                }
-                contextParts.push(""); // blank line between types
-            }
-
-            const context = contextParts.join("\n");
-            const user = `Analyze this lore corpus against the worldbuilding pillars. Identify the most impactful gaps, shallow areas, and missing connections. Focus on substance over counts.`;
-
-            const { raw } = await callLLM(GAP_DETECT_SYSTEM, user, "gap-detect", context, {
-                jsonSchema: GAP_DETECT_JSON_SCHEMA,
-            });
-
-            let result: unknown;
-            try {
-                const parsed = JSON.parse(raw);
-                const validated = GapDetectResponseSchema.safeParse(parsed);
-                if (validated.success) {
-                    result = validated.data;
-                } else {
-                    rootLogger.warn("Gap detect response failed validation", {
-                        errors: validated.error.issues,
-                    });
-                    result = { gaps: [], summary: "LLM response failed validation." };
-                }
-            } catch {
-                result = { gaps: [], summary: "Failed to parse gap analysis." };
-            }
-
-            return { ...(result as object), typeCounts, totalNotes: notes.length };
-        },
+        runGapDetect,
+        {
+            detail: {
+                summary: "Detect lore gaps",
+                description:
+                    "Analyzes the lore corpus against worldbuilding pillars and identifies structural, narrative, and thematic gaps.",
+                tags: ["Intelligence"],
+            },
+        }
+    )
+    .post(
+        "/gaps",
+        runGapDetect,
         {
             detail: {
                 summary: "Detect lore gaps",

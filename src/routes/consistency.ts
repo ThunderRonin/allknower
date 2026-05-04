@@ -14,15 +14,18 @@ import { rootLogger } from "../logger.ts";
  * Semantic probes used to find the most relevant lore notes when no noteIds are
  * supplied. Multiple probes ensure broad coverage across the lore graph.
  */
-const CONSISTENCY_PROBES = [
-    "characters relationships history factions alliances",
-    "world rules laws magic systems geography cosmology",
-    "timeline events conflicts wars major incidents",
-    "contradictions anomalies unresolved plot threads",
-];
+const CONSISTENCY_QUERY =
+    "characters relationships factions timeline world rules contradictions unresolved plot threads";
 
-/** Max content chars to include per note in the LLM context (item 2.4 fix). */
-const MAX_NOTE_CHARS = 2000;
+/**
+ * Keep the consistency prompt bounded. The previous route could feed the LLM
+ * up to 32 note excerpts at 2000 chars each, which routinely pushed the live
+ * integration flow past the generic 120s timeout.
+ */
+const CONSISTENCY_TOP_K = 8;
+const MAX_NOTE_CHARS = 600;
+const CONSISTENCY_TIMEOUT_MS = 120_000;
+const CONSISTENCY_MAX_TOKENS = 2000;
 
 export const consistencyRoute = new Elysia({ prefix: "/consistency" })
     .use(requireAuth)
@@ -64,22 +67,12 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
         } else {
             // Semantic sampling mode: use RAG probes to surface the most
             // consistency-relevant lore entries instead of truncating everything.
-            const seenIds = new Set<string>();
-            const sampled: NoteEntry[] = [];
-
-            for (const probe of CONSISTENCY_PROBES) {
-                const chunks = await queryLore(probe, 8);
-                for (const chunk of chunks) {
-                    if (!seenIds.has(chunk.noteId)) {
-                        seenIds.add(chunk.noteId);
-                        sampled.push({
-                            noteId: chunk.noteId,
-                            title: chunk.noteTitle,
-                            content: chunk.content,
-                        });
-                    }
-                }
-            }
+            const chunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+            const sampled = chunks.map((chunk) => ({
+                noteId: chunk.noteId,
+                title: chunk.noteTitle,
+                content: chunk.content,
+            }));
 
             if (sampled.length === 0) {
                 return { issues: [], summary: "No lore notes found to check." };
@@ -98,6 +91,8 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
 
         const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
             jsonSchema: CONSISTENCY_JSON_SCHEMA,
+            timeoutMs: CONSISTENCY_TIMEOUT_MS,
+            maxTokens: CONSISTENCY_MAX_TOKENS,
         });
 
         let result: unknown;

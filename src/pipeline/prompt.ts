@@ -210,6 +210,9 @@ export async function callLLM(
     context?: string,
     options?: {
         jsonSchema?: { name: string; schema: Record<string, unknown> };
+        maxTokens?: number;
+        timeoutMs?: number;
+        temperature?: number;
     }
 ): Promise<{ raw: string; tokensUsed: number; model: string; latencyMs: number }> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string; cache_control?: { type: string } }> = [
@@ -238,8 +241,9 @@ export async function callLLM(
         : { type: "json_object" as const };
 
     return callWithFallback(task, messages, {
-        temperature: 0.3, // low temp for more deterministic output
-        maxTokens: 30000, // matched to primary model (Grok) limits to avoid provider-side truncation
+        temperature: options?.temperature ?? 0.3, // low temp for more deterministic output
+        maxTokens: options?.maxTokens ?? 30000, // matched to primary model (Grok) limits to avoid provider-side truncation
+        timeoutMs: options?.timeoutMs,
         responseFormat,
     });
 }

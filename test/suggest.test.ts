@@ -51,7 +51,6 @@ mock.module("../src/rag/lancedb.ts", () => ({
     _resetConnection: mock(() => {}),
     getTable: mock(async () => ({} as never)),
     upsertNoteChunks: mock(async () => {}),
-    classifyQueryComplexity: mock(() => "simple" as const),
     deleteNoteChunks: mock(async () => {}),
     chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
@@ -194,6 +193,19 @@ describe("Suggest routes", () => {
 
     it("GET /suggest/gaps returns gaps, type counts, and total notes", async () => {
         const { status, json } = await requestJson(app, "/suggest/gaps");
+        const body = json as { gaps: unknown[]; typeCounts: Record<string, number>; totalNotes: number };
+
+        expect(status).toBe(200);
+        expect(Array.isArray(body.gaps)).toBe(true);
+        expect(typeof body.typeCounts).toBe("object");
+        expect(typeof body.totalNotes).toBe("number");
+    }, 30000);
+
+    it("POST /suggest/gaps returns gaps, type counts, and total notes", async () => {
+        const { status, json } = await requestJson(app, "/suggest/gaps", {
+            method: "POST",
+            json: {},
+        });
         const body = json as { gaps: unknown[]; typeCounts: Record<string, number>; totalNotes: number };
 
         expect(status).toBe(200);

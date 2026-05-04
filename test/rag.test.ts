@@ -14,7 +14,6 @@ mock.module("../src/rag/lancedb.ts", () => ({
     _resetConnection: mock(() => {}),
     getTable: mock(async () => ({} as never)),
     upsertNoteChunks: mock(async () => {}),
-    classifyQueryComplexity: mock(() => "simple" as const),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
     deleteNoteChunks: mock(async () => {}),
     chunkText: mock(() => [] as string[]),
