@@ -9,6 +9,7 @@ import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
 import { ConsistencyResponseSchema } from "../pipeline/schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
+import { resolveCoreCredentials } from "../integrations/core.ts";
 
 /**
  * Semantic probes used to find the most relevant lore notes when no noteIds are

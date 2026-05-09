@@ -45,6 +45,33 @@ export function createConfigRoute({
                     summary: "Update AllCodex connection credentials",
                 },
             }
+        )
+        .post(
+            "/config/wipe",
+            async ({ set }) => {
+                if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEV_WIPE !== "true") {
+                    set.status = 404;
+                    return { error: "Not found" };
+                }
+
+                const { wipeDatabase } = await import("../rag/lancedb.ts");
+                await wipeDatabase();
+                
+                await prisma.loreSession.deleteMany();
+                await prisma.lLMCallLog.deleteMany();
+                await prisma.ragIndexMeta.deleteMany();
+                await prisma.brainDumpHistory.deleteMany();
+                await prisma.relationHistory.deleteMany();
+
+                rootLogger.info("Database wiped (LanceDB, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)");
+                return { ok: true };
+            },
+            {
+                detail: {
+                    tags: ["System"],
+                    summary: "Wipe all RAG data and LLM logs",
+                },
+            }
         );
 }
 
