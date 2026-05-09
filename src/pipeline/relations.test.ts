@@ -23,8 +23,9 @@ const mockCallLLM = mock(async () => ({
     latencyMs: 50,
 }));
 
-const mockCreateRelation = mock(async () => {});
+const mockCreateRelation = mock(async () => ({ relationName: "relAlly", skipped: false }));
 const mockRelationHistoryCreate = mock(async () => ({}));
+const mockGetNote = mock(async () => ({ noteId: "note-a", attributes: [] }));
 
 mock.module("../rag/lancedb.ts", () => ({
     queryLore: mockQueryLore,
@@ -40,6 +41,7 @@ mock.module("./prompt.ts", () => ({
 mock.module("../etapi/client.ts", () => ({
     createRelation: mockCreateRelation,
     getAllCodexNotes: mock(async () => []),
+    getNote: mockGetNote,
     getNoteContent: mock(async () => ""),
     createNote: mock(async () => ({ note: { noteId: "n" }, branch: {} })),
     tagNote: mock(async () => {}),
@@ -69,6 +71,7 @@ beforeEach(() => {
     mockCallLLM.mockClear();
     mockCreateRelation.mockClear();
     mockRelationHistoryCreate.mockClear();
+    mockGetNote.mockClear();
 
     mockQueryLore.mockResolvedValue([
         { noteId: "note-b", noteTitle: "Aria Vale", content: "A ranger from the north.", score: 0.9 },
@@ -83,8 +86,9 @@ beforeEach(() => {
         model: "test",
         latencyMs: 50,
     });
-    mockCreateRelation.mockResolvedValue(undefined);
+    mockCreateRelation.mockResolvedValue({ relationName: "relAlly", skipped: false });
     mockRelationHistoryCreate.mockResolvedValue({});
+    mockGetNote.mockResolvedValue({ noteId: "note-a", attributes: [] });
 });
 
 describe("suggestRelationsForNote", () => {
@@ -197,10 +201,15 @@ describe("applyRelations", () => {
         );
     });
 
-    it("returns applied array with targetNoteId and type", async () => {
+    it("returns applied array with explicit relation metadata", async () => {
         const result = await applyRelations("note-a", validRelations);
         expect(result.applied).toHaveLength(1);
-        expect(result.applied[0]).toEqual({ targetNoteId: "note-b", type: "ally" });
+        expect(result.applied[0]).toEqual({
+            sourceNoteId: "note-a",
+            targetNoteId: "note-b",
+            relationshipType: "ally",
+            relationName: "relAlly",
+        });
     });
 
     it("non-fatal: continues when one createRelation throws", async () => {
@@ -210,10 +219,10 @@ describe("applyRelations", () => {
         expect(result.applied).toHaveLength(0);
     });
 
-    it("failed relation goes to failed array with reason", async () => {
+    it("failed relation goes to failed array with error", async () => {
         mockCreateRelation.mockRejectedValue(new Error("Network timeout"));
         const result = await applyRelations("note-a", validRelations);
-        expect(result.failed[0].reason).toContain("Network timeout");
+        expect(result.failed[0].error).toContain("Network timeout");
     });
 
     it("failed relation does NOT write to RelationHistory", async () => {
@@ -238,8 +247,8 @@ describe("applyRelations", () => {
         );
     });
 
-    it("empty relations array → returns { applied: [], failed: [] }", async () => {
+    it("empty relations array → returns empty applied/skipped/failed arrays", async () => {
         const result = await applyRelations("note-a", []);
-        expect(result).toEqual({ applied: [], failed: [] });
+        expect(result).toEqual({ applied: [], skipped: [], failed: [] });
     });
 });

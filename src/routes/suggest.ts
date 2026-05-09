@@ -7,6 +7,7 @@ import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
 import prisma from "../db/client.ts";
 import { suggestRelationsForNote, applyRelations } from "../pipeline/relations.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { GAP_DETECT_SYSTEM } from "../pipeline/prompts/gap-detect.ts";
 import { AUTOCOMPLETE_SYSTEM } from "../pipeline/prompts/autocomplete.ts";
 import { GAP_DETECT_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
@@ -112,8 +113,14 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .post(
         "/relationships",
-        async ({ body }) => {
-            const suggestions = await suggestRelationsForNote(body.noteId ?? "unknown", body.text);
+        async ({ body, session, set }) => {
+            const userId = session?.user?.id;
+            if (!userId) {
+                set.status = 401;
+                return { error: "Unauthorized" };
+            }
+            const credentials = await resolveAllCodexCredentials(userId);
+            const suggestions = await suggestRelationsForNote(body.noteId ?? "unknown", body.text, credentials);
             return { suggestions };
         },
         {
@@ -135,11 +142,18 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .post(
         "/relationships/apply",
-        async ({ body }) => {
+        async ({ body, session, set }) => {
+            const userId = session?.user?.id;
+            if (!userId) {
+                set.status = 401;
+                return { error: "Unauthorized" };
+            }
+
+            const credentials = await resolveAllCodexCredentials(userId);
             const result = await applyRelations(
                 body.sourceNoteId,
                 body.relations,
-                { bidirectional: body.bidirectional ?? true }
+                { bidirectional: body.bidirectional ?? true, credentials }
             );
             return result;
         },

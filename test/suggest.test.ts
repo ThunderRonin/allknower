@@ -40,10 +40,25 @@ mock.module("../src/pipeline/relations.ts", () => ({
             description: "Shared oath",
         }];
     }),
-    applyRelations: mock(async (sourceNoteId: string, relations: unknown[]) => ({
-        ok: true,
-        sourceNoteId,
-        applied: relations.length,
+    applyRelations: mock(async (sourceNoteId: string, relations: Array<{ targetNoteId: string; relationshipType: string }>) => ({
+        applied: relations.map((relation) => ({
+            sourceNoteId,
+            targetNoteId: relation.targetNoteId,
+            relationshipType: relation.relationshipType,
+            relationName: "relAlly",
+        })),
+        skipped: [],
+        failed: [],
+    })),
+}));
+
+mock.module("../src/integrations/allcodex.ts", () => ({
+    connectAllCodexIntegration: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    resolveAllCodexCredentials: mock(async () => ({
+        baseUrl: "http://localhost:8080",
+        token: "test-etapi-token",
     })),
 }));
 
@@ -229,7 +244,16 @@ describe("Suggest routes", () => {
         });
 
         expect(status).toBe(200);
-        expect(json).toEqual({ ok: true, sourceNoteId: "source-1", applied: 1 });
+        expect(json).toEqual({
+            applied: [{
+                sourceNoteId: "source-1",
+                targetNoteId: "target-1",
+                relationshipType: "ally",
+                relationName: "relAlly",
+            }],
+            skipped: [],
+            failed: [],
+        });
     });
 
     it("POST /suggest/relationships/apply rejects an invalid payload", async () => {

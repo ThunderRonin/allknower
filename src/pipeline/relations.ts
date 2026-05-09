@@ -7,13 +7,14 @@
 
 import { queryLore } from "../rag/lancedb.ts";
 import { callLLM } from "./prompt.ts";
-import { createRelation, type CreateRelationOptions } from "../etapi/client.ts";
+import { getNote, createRelation, type CreateRelationOptions, type EtapiCredentials } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import type { RelationSuggestion } from "../types/lore.ts";
 import { SUGGEST_RELATIONS_SYSTEM } from "./prompts/suggest.ts";
 import { SUGGEST_RELATIONS_JSON_SCHEMA } from "./schemas/llm-response-schemas.ts";
 import { SuggestRelationsResponseSchema } from "./schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
+import { getCoreRelationName, isCanonicalRelationshipType } from "../relationships/mapping.ts";
 
 /**
  * Ask the LLM to suggest meaningful narrative relationships for a note.
@@ -24,7 +25,8 @@ import { rootLogger } from "../logger.ts";
  */
 export async function suggestRelationsForNote(
     noteId: string,
-    noteContent: string
+    noteContent: string,
+    credentials?: EtapiCredentials
 ): Promise<RelationSuggestion[]> {
     const similar = await queryLore(noteContent, 15);
 
@@ -76,20 +78,68 @@ export async function suggestRelationsForNote(
 export async function applyRelations(
     sourceNoteId: string,
     relations: Array<{ targetNoteId: string; relationshipType: string; description?: string }>,
-    options: CreateRelationOptions = {}
+    options: CreateRelationOptions & { credentials?: EtapiCredentials } = {}
 ): Promise<{
-    applied: Array<{ targetNoteId: string; type: string }>;
-    failed: Array<{ targetNoteId: string; type: string; reason: string }>;
+    applied: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; relationName: string }>;
+    skipped: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; reason: string }>;
+    failed: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; error: string }>;
 }> {
-    const applied: Array<{ targetNoteId: string; type: string }> = [];
-    const failed: Array<{ targetNoteId: string; type: string; reason: string }> = [];
+    const applied: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; relationName: string }> = [];
+    const skipped: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; reason: string }> = [];
+    const failed: Array<{ sourceNoteId: string; targetNoteId: string; relationshipType: string; error: string }> = [];
+
+    let sourceNote;
+    try {
+        sourceNote = await getNote(sourceNoteId, options.credentials);
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return { applied, skipped, failed: [{ sourceNoteId, targetNoteId: "N/A", relationshipType: "N/A", error: `Failed to fetch source note: ${msg}` }] };
+    }
+    const existingRelations = sourceNote.attributes?.filter(a => a.type === "relation") || [];
 
     for (const rel of relations) {
         try {
-            await createRelation(sourceNoteId, rel.targetNoteId, rel.relationshipType, {
+            if (!isCanonicalRelationshipType(rel.relationshipType)) {
+                skipped.push({
+                    sourceNoteId,
+                    targetNoteId: rel.targetNoteId,
+                    relationshipType: rel.relationshipType,
+                    reason: `Unknown relationship type: ${rel.relationshipType}`,
+                });
+                continue;
+            }
+
+            const relationName = getCoreRelationName(rel.relationshipType);
+
+            const exists = existingRelations.some(
+                (attr) => attr.name === relationName && attr.value === rel.targetNoteId
+            );
+
+            if (exists) {
+                skipped.push({
+                    sourceNoteId,
+                    targetNoteId: rel.targetNoteId,
+                    relationshipType: rel.relationshipType,
+                    reason: "Relation already exists.",
+                });
+                continue;
+            }
+
+            const result = await createRelation(sourceNoteId, rel.targetNoteId, rel.relationshipType, {
                 bidirectional: options.bidirectional ?? true,
                 description: rel.description,
+                credentials: options.credentials,
             });
+
+            if (result.skipped) {
+                skipped.push({
+                    sourceNoteId,
+                    targetNoteId: rel.targetNoteId,
+                    relationshipType: rel.relationshipType,
+                    reason: result.reason ?? "Relation already exists.",
+                });
+                continue;
+            }
 
             // Log to history
             await prisma.relationHistory.create({
@@ -97,11 +147,12 @@ export async function applyRelations(
                     sourceNoteId,
                     targetNoteId: rel.targetNoteId,
                     type: rel.relationshipType,
+                    relationName,
                     description: rel.description,
                 },
             });
 
-            applied.push({ targetNoteId: rel.targetNoteId, type: rel.relationshipType });
+            applied.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, relationName });
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
             rootLogger.error("Failed to apply relation", {
@@ -110,9 +161,9 @@ export async function applyRelations(
                 relationType: rel.relationshipType,
                 error: msg,
             });
-            failed.push({ targetNoteId: rel.targetNoteId, type: rel.relationshipType, reason: msg });
+            failed.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, error: msg });
         }
     }
 
-    return { applied, failed };
+    return { applied, skipped, failed };
 }
