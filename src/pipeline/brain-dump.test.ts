@@ -291,7 +291,7 @@ describe("runBrainDump — auto mode (write path)", () => {
 
         expect(result.updated).toHaveLength(1);
         expect(result.created).toHaveLength(0);
-        expect(updateNoteMock).toHaveBeenCalledWith("existing-note-1", expect.any(Object));
+        expect(updateNoteMock).toHaveBeenCalledWith("existing-note-1", expect.any(Object), undefined);
         expect(createNoteMock).not.toHaveBeenCalled();
         expect(brainDumpCreateMock).toHaveBeenCalledTimes(1);
     });

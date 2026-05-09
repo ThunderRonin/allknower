@@ -25,6 +25,7 @@ import {
     setNoteTemplate,
     tagNote,
     getAllCodexNotes,
+    EtapiCredentials,
 } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
 
@@ -117,6 +118,7 @@ export interface AzgaarImportOptions {
     importCultures?: boolean;
     importNotes?: boolean;
     skipDuplicates?: boolean;
+    credentials?: EtapiCredentials;
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────
@@ -162,7 +164,8 @@ async function safeMakeNote(
     labels: Array<[string, string]>,
     bucket: { created: ImportResultEntry[]; skipped: SkippedEntry[]; errors: ErrorEntry[] },
     existing: Set<string>,
-    skipDuplicates: boolean
+    skipDuplicates: boolean,
+    credentials?: EtapiCredentials
 ) {
     const key = title.toLowerCase().trim();
     if (skipDuplicates && existing.has(key)) {
@@ -171,13 +174,13 @@ async function safeMakeNote(
     }
 
     try {
-        const note = await createNote({ parentNoteId, title, type: "text", content });
+        const note = await createNote({ parentNoteId, title, type: "text", content }, credentials);
         const noteId = note.note.noteId;
 
-        if (templateId) await setNoteTemplate(noteId, templateId);
+        if (templateId) await setNoteTemplate(noteId, templateId, credentials);
 
         for (const [name, value] of labels) {
-            await tagNote(noteId, name, value);
+            await tagNote(noteId, name, value, credentials);
         }
 
         bucket.created.push({ noteId, name: title });
@@ -296,7 +299,8 @@ export async function importAzgaarMap(
                 labels,
                 result.states,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
@@ -356,7 +360,8 @@ export async function importAzgaarMap(
                 labels,
                 result.burgs,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
@@ -391,7 +396,8 @@ export async function importAzgaarMap(
                 labels,
                 result.religions,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
@@ -418,7 +424,8 @@ export async function importAzgaarMap(
                 labels,
                 result.cultures,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
@@ -448,7 +455,8 @@ export async function importAzgaarMap(
                 labels,
                 result.notes,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }

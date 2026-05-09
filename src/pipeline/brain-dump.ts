@@ -10,6 +10,7 @@ import {
     createAttribute,
     getAllCodexNotes,
     probeAllCodex,
+    type EtapiCredentials,
 } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
@@ -66,13 +67,13 @@ export interface BrainDumpInboxResult {
 export async function runBrainDump(
     rawText: string,
     mode: "auto" | "review" | "inbox" = "auto",
-    options: { autoRelate?: boolean } = {}
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials } = {}
 ): Promise<
     | (BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> })
     | BrainDumpReviewResult
     | BrainDumpInboxResult
 > {
-    const { autoRelate = true } = options;
+    const { autoRelate = true, credentials } = options;
 
     // Inbox mode — client-side capture, no LLM call needed
     if (mode === "inbox") {
@@ -81,7 +82,7 @@ export async function runBrainDump(
 
     // Preflight: verify AllCodex is reachable and the ETAPI token is valid before
     // spending LLM tokens on a run that will fail to write anything.
-    const allcodexProbe = await probeAllCodex();
+    const allcodexProbe = await probeAllCodex(credentials);
     if (!allcodexProbe.ok) {
         throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
     }
@@ -128,7 +129,7 @@ export async function runBrainDump(
     // This grounds creature/NPC generation against existing homebrew statblocks automatically.
     let statblockContext: typeof ragContext = [];
     try {
-        const statblockNotes = await getAllCodexNotes("#statblock");
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
         const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
         if (statblockNoteIds.length > 0) {
             statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
@@ -182,7 +183,7 @@ export async function runBrainDump(
     }
 
     // Auto mode — write to AllCodex
-    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate);
+    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate, credentials);
 }
 
 /**
@@ -191,9 +192,10 @@ export async function runBrainDump(
  */
 export async function commitReviewedEntities(
     rawText: string,
-    approvedEntities: ProposedEntity[]
+    approvedEntities: ProposedEntity[],
+    credentials?: EtapiCredentials
 ): Promise<BrainDumpResult & { reindexIds: string[] }> {
-    const allcodexProbe = await probeAllCodex();
+    const allcodexProbe = await probeAllCodex(credentials);
     if (!allcodexProbe.ok) {
         throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
     }
@@ -213,7 +215,7 @@ export async function commitReviewedEntities(
         tags: e.tags,
     }));
 
-    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true);
+    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true, credentials);
 }
 
 async function _writeEntitiesToAllCodex(
@@ -231,7 +233,8 @@ async function _writeEntitiesToAllCodex(
     summary: string,
     tokensUsed: number,
     model: string,
-    autoRelate: boolean
+    autoRelate: boolean,
+    credentials?: EtapiCredentials
 ): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
     const created: BrainDumpResult["created"] = [];
     const updated: BrainDumpResult["updated"] = [];
@@ -266,9 +269,9 @@ async function _writeEntitiesToAllCodex(
             }
 
             if (entity.action === "update" && entity.existingNoteId) {
-                await updateNote(entity.existingNoteId, { title: entity.title });
+                await updateNote(entity.existingNoteId, { title: entity.title }, credentials);
                 if (entity.content) {
-                    await setNoteContent(entity.existingNoteId, entity.content);
+                    await setNoteContent(entity.existingNoteId, entity.content, credentials);
                 }
                 updated.push({ noteId: entity.existingNoteId, title: entity.title, type: entity.type as LoreEntityType });
                 reindexIds.push(entity.existingNoteId);
@@ -278,11 +281,11 @@ async function _writeEntitiesToAllCodex(
                     title: entity.title,
                     type: "text",
                     content: entity.content ?? "",
-                });
+                }, credentials);
 
                 const templateId = TEMPLATE_ID_MAP[entity.type as LoreEntityType];
                 try {
-                    await setNoteTemplate(note.noteId, templateId);
+                    await setNoteTemplate(note.noteId, templateId, credentials);
                 } catch {
                     rootLogger.warn("Template not found — skipping template link", {
                         templateId,
@@ -290,20 +293,20 @@ async function _writeEntitiesToAllCodex(
                     });
                 }
 
-                await tagNote(note.noteId, "lore");
-                await tagNote(note.noteId, "loreType", entity.type);
+                await tagNote(note.noteId, "lore", "", credentials);
+                await tagNote(note.noteId, "loreType", entity.type, credentials);
 
                 if (entity.attributes && typeof entity.attributes === "object") {
                     for (const [name, value] of Object.entries(entity.attributes)) {
                         if (value !== undefined && value !== null && value !== "") {
                             const strValue = Array.isArray(value) ? value.join(", ") : String(value);
-                            await createAttribute({ noteId: note.noteId, type: "label", name, value: strValue });
+                            await createAttribute({ noteId: note.noteId, type: "label", name, value: strValue }, credentials);
                         }
                     }
                 }
 
                 for (const tag of entity.tags ?? []) {
-                    await tagNote(note.noteId, tag);
+                    await tagNote(note.noteId, tag, "", credentials);
                 }
 
                 created.push({ noteId: note.noteId, title: entity.title, type: entity.type as LoreEntityType });
@@ -323,10 +326,10 @@ async function _writeEntitiesToAllCodex(
             try {
                 const entity = entities.find(e => e.title === note.title);
                 const content = entity?.content ?? note.title;
-                const suggestions = await suggestRelationsForNote(note.noteId, content);
+                const suggestions = await suggestRelationsForNote(note.noteId, content, credentials);
                 const highConfidence = suggestions.filter(s => s.confidence === "high");
                 if (highConfidence.length > 0) {
-                    const { applied, failed } = await applyRelations(note.noteId, highConfidence);
+                    const { applied, failed } = await applyRelations(note.noteId, highConfidence, { credentials });
                     relationResults.push({ noteId: note.noteId, applied: applied.length, failed: failed.length });
                 }
             } catch (error) {

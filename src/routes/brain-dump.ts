@@ -5,6 +5,7 @@ import { runBrainDump, commitReviewedEntities } from "../pipeline/brain-dump.ts"
 import { indexNote } from "../rag/indexer.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveCoreCredentials } from "../integrations/core.ts";
 
 type BrainDumpRouteDeps = {
     runBrainDumpImpl?: typeof runBrainDump;
@@ -39,14 +40,15 @@ export function createBrainDumpRoute({
     )
     .post(
         "/",
-        async ({ body, backgroundTasks }) => {
+        async ({ body, backgroundTasks, session }) => {
             const mode = body.mode ?? "auto";
-            const result = await runBrainDumpImpl(body.rawText, mode);
+            const credentials = await resolveCoreCredentials(session!.user.id);
+            const result = await runBrainDumpImpl(body.rawText, mode, { credentials });
 
             if ("reindexIds" in result) {
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
                 for (const noteId of reindexIds) {
-                    backgroundTasks.addTask(indexNoteImpl, noteId);
+                    backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
                 }
                 return rest;
             }
@@ -76,11 +78,12 @@ export function createBrainDumpRoute({
     )
     .post(
         "/commit",
-        async ({ body, backgroundTasks }) => {
-            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities);
+        async ({ body, backgroundTasks, session }) => {
+            const credentials = await resolveCoreCredentials(session!.user.id);
+            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities, credentials);
             const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
             for (const noteId of (reindexIds ?? [])) {
-                backgroundTasks.addTask(indexNoteImpl, noteId);
+                backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
             }
             return rest;
         },

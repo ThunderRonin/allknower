@@ -263,6 +263,27 @@ export async function checkLanceDbHealth(): Promise<{ ok: boolean; error?: strin
 }
 
 /**
+ * Wipes the entire LanceDB lore_embeddings table.
+ */
+export async function wipeDatabase(): Promise<void> {
+    if (_db) {
+        const tables = await _db.tableNames();
+        if (tables.includes(TABLE_NAME)) {
+            await _db.dropTable(TABLE_NAME);
+            _table = null;
+        }
+    } else {
+        const dbPath = env.LANCEDB_PATH;
+        const tempDb = await lancedb.connect(dbPath);
+        const tables = await tempDb.tableNames();
+        if (tables.includes(TABLE_NAME)) {
+            await tempDb.dropTable(TABLE_NAME);
+        }
+        _table = null;
+    }
+}
+
+/**
  * Sanitize a string value for use in LanceDB filter expressions.
  * AllCodex noteIds are cuid-format (alphanumeric + hyphens/underscores).
  * Throws on any input that looks like an injection attempt.

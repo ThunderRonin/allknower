@@ -6,6 +6,7 @@ import {
     getAllCodexNotes,
 } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
+import { resolveCoreCredentials } from "../integrations/core.ts";
 import { importAzgaarMap, isAzgaarMapData, getMapPreview } from "../pipeline/azgaar.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 
@@ -62,8 +63,9 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
     .use(requireAuthImpl)
     .post(
         "/import/system-pack",
-        async ({ body }) => {
+        async ({ body, session }) => {
             const { notes, parentNoteId = "root", skipDuplicates = true } = body;
+            const credentials = await resolveCoreCredentials(session!.user.id);
 
             if (!Array.isArray(notes) || notes.length === 0) {
                 return new Response(JSON.stringify({ error: "notes array is required and must not be empty", code: "INVALID_INPUT" }), {
@@ -75,7 +77,7 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
             let existingTitles = new Set<string>();
             if (skipDuplicates) {
                 try {
-                    const existing = await getAllCodexNotes("#statblock");
+                    const existing = await getAllCodexNotes("#statblock", credentials);
                     for (const n of existing) {
                         if (n.title) existingTitles.add(n.title.toLowerCase().trim());
                     }

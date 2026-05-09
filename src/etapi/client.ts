@@ -9,6 +9,7 @@
 
 import { env } from "../env.ts";
 import prisma from "../db/client.ts";
+import { getCoreRelationName } from "../relationships/mapping.ts";
 
 // ── Credential cache ─────────────────────────────────────────────────────────
 // Credentials are loaded from AppConfig (DB) with a 60-second TTL, falling back
@@ -18,6 +19,11 @@ import prisma from "../db/client.ts";
 let _credCache: { url: string; token: string } | null = null;
 let _credCacheAt = 0;
 const CRED_TTL_MS = 60_000;
+
+export type EtapiCredentials = {
+    baseUrl: string;
+    token: string;
+};
 
 export function invalidateCredentialCache(): void {
     _credCache = null;
@@ -47,11 +53,11 @@ async function getCredentials(): Promise<{ url: string; token: string }> {
  * Lightweight connectivity check — verifies the ETAPI token is valid.
  * Returns { ok: true } or { ok: false, error: string }.
  */
-export async function probeAllCodex(): Promise<{ ok: boolean; error?: string }> {
+export async function probeAllCodex(credentials?: EtapiCredentials): Promise<{ ok: boolean; error?: string }> {
     let url: string;
     let token: string;
     try {
-        ({ url, token } = await getCredentials());
+        ({ url, token } = await resolveCredentials(credentials));
     } catch {
         return { ok: false, error: "Failed to load AllCodex credentials" };
     }
@@ -68,8 +74,19 @@ export async function probeAllCodex(): Promise<{ ok: boolean; error?: string }> 
     }
 }
 
-async function etapiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-    const { url: BASE_URL, token: TOKEN } = await getCredentials();
+function normalizeCredentials(credentials: EtapiCredentials): { url: string; token: string } {
+    return {
+        url: credentials.baseUrl.replace(/\/+$/, ""),
+        token: credentials.token,
+    };
+}
+
+async function resolveCredentials(credentials?: EtapiCredentials): Promise<{ url: string; token: string }> {
+    return credentials ? normalizeCredentials(credentials) : getCredentials();
+}
+
+async function etapiFetch(path: string, options: RequestInit = {}, credentials?: EtapiCredentials): Promise<Response> {
+    const { url: BASE_URL, token: TOKEN } = await resolveCredentials(credentials);
     const url = `${BASE_URL}/etapi${path}`;
     const res = await fetch(url, {
         ...options,
@@ -127,52 +144,53 @@ export interface CreateNoteParams {
 }
 
 /** Search for notes using Trilium's search syntax */
-export async function getAllCodexNotes(search: string): Promise<EtapiNote[]> {
-    const res = await etapiFetch(`/notes?search=${encodeURIComponent(search)}`);
+export async function getAllCodexNotes(search: string, credentials?: EtapiCredentials): Promise<EtapiNote[]> {
+    const res = await etapiFetch(`/notes?search=${encodeURIComponent(search)}`, {}, credentials);
     const data = await res.json() as { results: EtapiNote[] };
     return data.results;
 }
 
 /** Get a single note by ID */
-export async function getNote(noteId: string): Promise<EtapiNote> {
-    const res = await etapiFetch(`/notes/${noteId}`);
+export async function getNote(noteId: string, credentials?: EtapiCredentials): Promise<EtapiNote> {
+    const res = await etapiFetch(`/notes/${noteId}`, {}, credentials);
     return res.json() as Promise<EtapiNote>;
 }
 
 /** Get raw note content (HTML or plain text) */
-export async function getNoteContent(noteId: string): Promise<string> {
-    const res = await etapiFetch(`/notes/${noteId}/content`);
+export async function getNoteContent(noteId: string, credentials?: EtapiCredentials): Promise<string> {
+    const res = await etapiFetch(`/notes/${noteId}/content`, {}, credentials);
     return res.text();
 }
 
 /** Create a new note in AllCodex */
-export async function createNote(params: CreateNoteParams): Promise<{ note: EtapiNote; branch: any }> {
+export async function createNote(params: CreateNoteParams, credentials?: EtapiCredentials): Promise<{ note: EtapiNote; branch: any }> {
     const res = await etapiFetch("/create-note", {
         method: "POST",
         body: JSON.stringify(params),
-    });
+    }, credentials);
     return res.json() as Promise<{ note: EtapiNote; branch: any }>;
 }
 
 /** Update note metadata (title, type) */
 export async function updateNote(
     noteId: string,
-    patch: Partial<Pick<EtapiNote, "title" | "type" | "mime">>
+    patch: Partial<Pick<EtapiNote, "title" | "type" | "mime">>,
+    credentials?: EtapiCredentials
 ): Promise<EtapiNote> {
     const res = await etapiFetch(`/notes/${noteId}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
-    });
+    }, credentials);
     return res.json() as Promise<EtapiNote>;
 }
 
 /** Set note content (HTML or plain text) */
-export async function setNoteContent(noteId: string, content: string): Promise<void> {
+export async function setNoteContent(noteId: string, content: string, credentials?: EtapiCredentials): Promise<void> {
     await etapiFetch(`/notes/${noteId}/content`, {
         method: "PUT",
         headers: { "Content-Type": "text/html" },
         body: content,
-    });
+    }, credentials);
 }
 
 // ── Attribute Operations ──────────────────────────────────────────────────────
@@ -186,46 +204,42 @@ export interface CreateAttributeParams {
 }
 
 /** Create an attribute (label or relation) on a note */
-export async function createAttribute(params: CreateAttributeParams): Promise<EtapiAttribute> {
+export async function createAttribute(params: CreateAttributeParams, credentials?: EtapiCredentials): Promise<EtapiAttribute> {
     const res = await etapiFetch("/attributes", {
         method: "POST",
         body: JSON.stringify(params),
-    });
+    }, credentials);
     return res.json() as Promise<EtapiAttribute>;
 }
 
 /** Set a template relation on a note (links it to a lore template) */
-export async function setNoteTemplate(noteId: string, templateNoteId: string): Promise<void> {
+export async function setNoteTemplate(noteId: string, templateNoteId: string, credentials?: EtapiCredentials): Promise<void> {
     await createAttribute({
         noteId,
         type: "relation",
         name: "template",
         value: templateNoteId,
-    });
+    }, credentials);
 }
 
 /** Tag a note with a label */
-export async function tagNote(noteId: string, labelName: string, value: string = ""): Promise<void> {
-    await createAttribute({ noteId, type: "label", name: labelName, value });
+export async function tagNote(noteId: string, labelName: string, value: string = "", credentials?: EtapiCredentials): Promise<void> {
+    await createAttribute({ noteId, type: "label", name: labelName, value }, credentials);
 }
 
 // ── Relation Operations ───────────────────────────────────────────────────────
 
-/** Maps relationship types to Trilium relation attribute names */
-const RELATION_NAME_MAP: Record<string, string> = {
-    ally: "relAlly",
-    enemy: "relEnemy",
-    family: "relFamily",
-    location: "relLocation",
-    event: "relEvent",
-    faction: "relFaction",
-    other: "relOther",
-};
-
 export interface CreateRelationOptions {
     bidirectional?: boolean; // default true — also create inverse on target
     description?: string;   // written as #relationNote label for context
+    credentials?: EtapiCredentials;
 }
+
+export type CreateRelationResult = {
+    relationName: string;
+    skipped: boolean;
+    reason?: string;
+};
 
 /**
  * Create a relation attribute linking sourceNoteId → targetNoteId.
@@ -239,9 +253,17 @@ export async function createRelation(
     targetNoteId: string,
     relationshipType: string,
     options: CreateRelationOptions = {}
-): Promise<void> {
-    const { bidirectional = true, description } = options;
-    const attrName = RELATION_NAME_MAP[relationshipType] ?? RELATION_NAME_MAP["other"];
+): Promise<CreateRelationResult> {
+    const { bidirectional = true, description, credentials } = options;
+    const attrName = getCoreRelationName(relationshipType);
+    const source = await getNote(sourceNoteId, credentials);
+    const exists = source.attributes?.some(
+        (attr) => attr.type === "relation" && attr.name === attrName && attr.value === targetNoteId
+    );
+
+    if (exists) {
+        return { relationName: attrName, skipped: true, reason: "Relation already exists." };
+    }
 
     // Forward relation: source → target
     await createAttribute({
@@ -249,7 +271,7 @@ export async function createRelation(
         type: "relation",
         name: attrName,
         value: targetNoteId,
-    });
+    }, credentials);
 
     // Write description as a label for inline context in AllCodex
     if (description) {
@@ -258,7 +280,7 @@ export async function createRelation(
             type: "label",
             name: "relationNote",
             value: `${relationshipType}:${targetNoteId}: ${description}`,
-        });
+        }, credentials);
     }
 
     // Inverse relation: target → source (bidirectional)
@@ -268,7 +290,7 @@ export async function createRelation(
             type: "relation",
             name: attrName,
             value: sourceNoteId,
-        });
+        }, credentials);
 
         if (description) {
             await createAttribute({
@@ -276,17 +298,19 @@ export async function createRelation(
                 type: "label",
                 name: "relationNote",
                 value: `${relationshipType}:${sourceNoteId}: ${description}`,
-            });
+            }, credentials);
         }
     }
+
+    return { relationName: attrName, skipped: false };
 }
 
 // ── Health Check ──────────────────────────────────────────────────────────────
 
 /** Verify AllCodex is reachable via ETAPI */
-export async function checkAllCodexHealth(): Promise<{ ok: boolean; version?: string; error?: string }> {
+export async function checkAllCodexHealth(credentials?: EtapiCredentials): Promise<{ ok: boolean; version?: string; error?: string }> {
     try {
-        const res = await etapiFetch("/app-info");
+        const res = await etapiFetch("/app-info", {}, credentials);
         const info = await res.json() as { appVersion: string };
         return { ok: true, version: info.appVersion };
     } catch (e: any) {

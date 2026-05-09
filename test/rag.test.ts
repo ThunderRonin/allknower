@@ -10,6 +10,10 @@ mock.module("../src/plugins/auth-guard.ts", () => ({
     requireAuth: requireAuthBypass
 }));
 
+mock.module("../src/integrations/core.ts", () => ({
+    resolveCoreCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+}));
+
 mock.module("../src/rag/lancedb.ts", () => ({
     _resetConnection: mock(() => {}),
     getTable: mock(async () => ({} as never)),

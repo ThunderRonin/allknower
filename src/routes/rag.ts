@@ -3,6 +3,7 @@ import { queryLore } from "../rag/lancedb.ts";
 import { indexNote, fullReindex, reindexStaleNotes } from "../rag/indexer.ts";
 import prisma from "../db/client.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveCoreCredentials } from "../integrations/core.ts";
 
 export const ragRoute = new Elysia({ prefix: "/rag" })
     .use(requireAuth)
@@ -26,9 +27,10 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex/:noteId",
-        async ({ params }) => {
+        async ({ params, session }) => {
             try {
-                await indexNote(params.noteId);
+                const credentials = await resolveCoreCredentials(session!.user.id);
+                await indexNote(params.noteId, credentials);
                 return { ok: true, noteId: params.noteId };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -58,8 +60,9 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex",
-        async () => {
-            const result = await fullReindex();
+        async ({ session }) => {
+            const credentials = await resolveCoreCredentials(session!.user.id);
+            const result = await fullReindex(credentials);
             return result;
         },
         {
@@ -72,8 +75,9 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex-stale",
-        async () => {
-            const result = await reindexStaleNotes();
+        async ({ session }) => {
+            const credentials = await resolveCoreCredentials(session!.user.id);
+            const result = await reindexStaleNotes(credentials);
             return result;
         },
         {

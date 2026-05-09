@@ -20,6 +20,8 @@ export const envSchema = z.object({
     // better-auth
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().default("http://localhost:3001"),
+    PORTAL_INTERNAL_SECRET: z.string().default(""),
+    INTEGRATION_CREDENTIALS_KEY: z.string().default(""),
 
     // OpenRouter
     OPENROUTER_API_KEY: z.string().min(1),
@@ -118,6 +120,37 @@ export const envSchema = z.object({
         .optional()
         .default(60000)
         .pipe(z.number().positive()),
+}).superRefine((value, ctx) => {
+    const rawKey = value.INTEGRATION_CREDENTIALS_KEY;
+    const isValidKey =
+        rawKey.length === 0 ||
+        /^[0-9a-f]{64}$/i.test(rawKey) ||
+        Buffer.from(rawKey, "base64").length === 32 ||
+        Buffer.byteLength(rawKey, "utf8") === 32;
+
+    if (!isValidKey) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["INTEGRATION_CREDENTIALS_KEY"],
+            message: "Must be 32 bytes as utf8, 64 hex chars, or base64-encoded 32 bytes.",
+        });
+    }
+
+    if (value.NODE_ENV === "production" && rawKey.length === 0) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["INTEGRATION_CREDENTIALS_KEY"],
+            message: "Required in production.",
+        });
+    }
+
+    if (value.NODE_ENV === "production" && value.PORTAL_INTERNAL_SECRET.length < 16) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["PORTAL_INTERNAL_SECRET"],
+            message: "Must be at least 16 characters in production.",
+        });
+    }
 });
 
 export type Env = z.infer<typeof envSchema>;

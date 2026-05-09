@@ -63,10 +63,17 @@ describe("envSchema", () => {
     });
 
     it('accepts NODE_ENV "production" | "development" | "test"', () => {
-        for (const env of ["production", "development", "test"]) {
+        for (const env of ["development", "test"]) {
             const r = envSchema.safeParse({ ...VALID_MINIMAL, NODE_ENV: env });
             expect(r.success).toBe(true);
         }
+        const production = envSchema.safeParse({
+            ...VALID_MINIMAL,
+            NODE_ENV: "production",
+            INTEGRATION_CREDENTIALS_KEY: "a".repeat(32),
+            PORTAL_INTERNAL_SECRET: "b".repeat(16),
+        });
+        expect(production.success).toBe(true);
     });
 
     it('defaults LANCEDB_PATH to "./data/lancedb"', () => {

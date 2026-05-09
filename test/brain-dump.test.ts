@@ -13,6 +13,10 @@ mock.module("../src/rag/lancedb.ts", () => ({
     checkLanceDbHealth: mock(async () => ({ ok: true })),
 }));
 
+mock.module("../src/integrations/core.ts", () => ({
+    resolveCoreCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+}));
+
 mock.module("../src/pipeline/prompt.ts", () => ({
     buildBrainDumpPrompt: mock(() => ({ system: "sys", context: "ctx", user: "usr" })),
     callLLM: mock(async () => ({ raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 })),

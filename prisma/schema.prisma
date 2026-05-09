@@ -17,8 +17,26 @@ model User {
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
   sessions      Session[]
+  integrations  UserIntegration[]
 
   @@map("users")
+}
+
+model UserIntegration {
+  id             String   @id @default(cuid())
+  userId         String
+  provider       String
+  baseUrl        String
+  encryptedToken String
+  tokenLast4     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider])
+  @@map("user_integrations")
 }
 
 model Session {
@@ -120,6 +138,7 @@ model RelationHistory {
   sourceNoteId String
   targetNoteId String
   type         String
+  relationName String?
   description  String?
   createdAt    DateTime @default(now())
 

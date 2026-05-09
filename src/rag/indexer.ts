@@ -1,5 +1,5 @@
 import { upsertNoteChunks, chunkText } from "./lancedb.ts";
-import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
+import { getAllCodexNotes, getNoteContent, type EtapiCredentials } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
@@ -15,9 +15,9 @@ import { rootLogger } from "../logger.ts";
  * Index a single note by ID.
  * Fetches content from AllCodex ETAPI, chunks it, embeds, and upserts into LanceDB.
  */
-export async function indexNote(noteId: string): Promise<void> {
+export async function indexNote(noteId: string, credentials?: EtapiCredentials): Promise<void> {
     try {
-        const content = await getNoteContent(noteId);
+        const content = await getNoteContent(noteId, credentials);
         if (!content || content.trim().length === 0) return;
 
         // Strip HTML tags for embedding (we embed plain text)
@@ -25,7 +25,7 @@ export async function indexNote(noteId: string): Promise<void> {
         const chunks = chunkText(plainText);
 
         // Get note title from ETAPI
-        const notes = await getAllCodexNotes(`#noteId=${noteId}`);
+        const notes = await getAllCodexNotes(`#noteId=${noteId}`, credentials);
         const noteTitle = notes[0]?.title ?? noteId;
 
         await upsertNoteChunks(noteId, noteTitle, chunks);
@@ -62,18 +62,18 @@ export async function indexNote(noteId: string): Promise<void> {
  * This is a slow operation; run it manually or on first setup.
  * Uses the #lore label to identify lore entries.
  */
-export async function fullReindex(): Promise<{ indexed: number; failed: number }> {
+export async function fullReindex(credentials?: EtapiCredentials): Promise<{ indexed: number; failed: number }> {
     rootLogger.info("Starting full RAG reindex");
 
     // Search for all notes tagged as lore entries
-    const loreNotes = await getAllCodexNotes("#lore");
+    const loreNotes = await getAllCodexNotes("#lore", credentials);
 
     let indexed = 0;
     let failed = 0;
 
     for (const note of loreNotes) {
         try {
-            await indexNote(note.noteId);
+            await indexNote(note.noteId, credentials);
             indexed++;
         } catch {
             failed++;
@@ -91,7 +91,7 @@ export async function fullReindex(): Promise<{ indexed: number; failed: number }
  *
  * Cheaper than fullReindex() — safe to run on a schedule.
  */
-export async function reindexStaleNotes(): Promise<{
+export async function reindexStaleNotes(credentials?: EtapiCredentials): Promise<{
     reindexed: number;
     failed: number;
     upToDate: number;
@@ -100,7 +100,7 @@ export async function reindexStaleNotes(): Promise<{
 
     // Fetch all lore notes and all existing index metadata in parallel
     const [loreNotes, metaRecords] = await Promise.all([
-        getAllCodexNotes("#lore"),
+        getAllCodexNotes("#lore", credentials),
         prisma.ragIndexMeta.findMany({
             select: { noteId: true, embeddedAt: true },
         }),
@@ -120,7 +120,7 @@ export async function reindexStaleNotes(): Promise<{
 
         if (isStale) {
             try {
-                await indexNote(note.noteId);
+                await indexNote(note.noteId, credentials);
                 reindexed++;
             } catch {
                 failed++;
