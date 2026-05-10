@@ -96,6 +96,7 @@ See [`.env.example`](.env.example) for the full list. Required vars:
 | `INTEGRATION_CREDENTIALS_KEY` | 32-byte secret for encrypting user-scoped Core tokens at rest |
 | `PORTAL_INTERNAL_SECRET` | Shared secret for Portal to resolve credentials |
 | `ALLCODEX_ETAPI_TOKEN` | AllCodex ETAPI token (used *only* as a fallback for local dev) |
+| `*_MODEL` / `*_FALLBACK` | Refer to `.env.example` for task-specific LLM model preferences |
 
 ---
 
@@ -160,6 +161,11 @@ If you want to contribute:
 
 See [docs/remaining-features-plan.md](docs/remaining-features-plan.md) for a list of planned features with detailed specs if you're looking for something to pick up.
 
+---
+
+## License
+
+MIT
 ---
 
 ## License
