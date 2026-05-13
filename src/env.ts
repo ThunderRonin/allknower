@@ -35,6 +35,10 @@ export const envSchema = z.object({
     BRAIN_DUMP_FALLBACK_1: z.string().default(""),
     BRAIN_DUMP_FALLBACK_2: z.string().default(""),
 
+    ARTICLE_COPILOT_MODEL: z.string().default(""),
+    ARTICLE_COPILOT_FALLBACK_1: z.string().default(""),
+    ARTICLE_COPILOT_FALLBACK_2: z.string().default(""),
+
     CONSISTENCY_MODEL: z.string().default("moonshotai/kimi-k2.5"),
     CONSISTENCY_FALLBACK_1: z.string().default(""),
     CONSISTENCY_FALLBACK_2: z.string().default(""),

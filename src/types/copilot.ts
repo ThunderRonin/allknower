@@ -72,12 +72,28 @@ export const CopilotProposalTargetSchema = z.object({
     relationDeletes: z.array(CopilotRelationDeleteSchema).default([]),
     rationale: z.string().min(1),
 }).superRefine((target, ctx) => {
-    if (target.kind === "create" && !target.loreType) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["loreType"],
-            message: "Create targets must include loreType.",
-        });
+    if (target.kind === "create") {
+        if (!target.loreType) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["loreType"],
+                message: "Create targets must include loreType.",
+            });
+        }
+        if (!target.title) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["title"],
+                message: "Create targets must include title.",
+            });
+        }
+        if (!target.contentHtml) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["contentHtml"],
+                message: "Create targets must include contentHtml.",
+            });
+        }
     }
 });
 export type CopilotProposalTarget = z.infer<typeof CopilotProposalTargetSchema>;

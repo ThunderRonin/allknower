@@ -54,9 +54,9 @@ export function getModelChain(task: TaskType): string[] {
             fallback2: env.BRAIN_DUMP_FALLBACK_2,
         },
         "article-copilot": {
-            primary: env.BRAIN_DUMP_MODEL,
-            fallback1: env.BRAIN_DUMP_FALLBACK_1,
-            fallback2: env.BRAIN_DUMP_FALLBACK_2,
+            primary: env.ARTICLE_COPILOT_MODEL || env.BRAIN_DUMP_MODEL,
+            fallback1: env.ARTICLE_COPILOT_FALLBACK_1 || env.BRAIN_DUMP_FALLBACK_1,
+            fallback2: env.ARTICLE_COPILOT_FALLBACK_2 || env.BRAIN_DUMP_FALLBACK_2,
         },
         consistency: {
             primary: env.CONSISTENCY_MODEL,
