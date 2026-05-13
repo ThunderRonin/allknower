@@ -13,8 +13,8 @@ mock.module("../src/rag/lancedb.ts", () => ({
     checkLanceDbHealth: mock(async () => ({ ok: true })),
 }));
 
-mock.module("../src/integrations/core.ts", () => ({
-    resolveCoreCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+mock.module("../src/integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({

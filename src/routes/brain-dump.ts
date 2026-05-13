@@ -5,7 +5,7 @@ import { runBrainDump, commitReviewedEntities } from "../pipeline/brain-dump.ts"
 import { indexNote } from "../rag/indexer.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
-import { resolveCoreCredentials } from "../integrations/core.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 
 type BrainDumpRouteDeps = {
     runBrainDumpImpl?: typeof runBrainDump;
@@ -42,7 +42,7 @@ export function createBrainDumpRoute({
         "/",
         async ({ body, backgroundTasks, session }) => {
             const mode = body.mode ?? "auto";
-            const credentials = await resolveCoreCredentials(session!.user.id);
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
             const result = await runBrainDumpImpl(body.rawText, mode, { credentials });
 
             if ("reindexIds" in result) {
@@ -79,7 +79,7 @@ export function createBrainDumpRoute({
     .post(
         "/commit",
         async ({ body, backgroundTasks, session }) => {
-            const credentials = await resolveCoreCredentials(session!.user.id);
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
             const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities, credentials);
             const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
             for (const noteId of (reindexIds ?? [])) {

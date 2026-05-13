@@ -48,8 +48,8 @@ mock.module("../db/client.ts", () => ({
     default: { ragIndexMeta: { upsert: mock(async () => ({})), findMany: mock(async () => []) } },
 }));
 
-mock.module("../integrations/core.ts", () => ({
-    resolveCoreCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+mock.module("../integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
 }));
 
 import { beforeEach, describe, expect, it } from "bun:test";

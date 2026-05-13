@@ -2,7 +2,6 @@ import Elysia from "elysia";
 import { createNote, createAttribute, tagNote } from "../etapi/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
-import { resolveCoreCredentials } from "../integrations/core.ts";
 
 /**
  * Promoted attribute definitions for each lore template.
