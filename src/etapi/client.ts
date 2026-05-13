@@ -88,8 +88,11 @@ async function resolveCredentials(credentials?: EtapiCredentials): Promise<{ url
 async function etapiFetch(path: string, options: RequestInit = {}, credentials?: EtapiCredentials): Promise<Response> {
     const { url: BASE_URL, token: TOKEN } = await resolveCredentials(credentials);
     const url = `${BASE_URL}/etapi${path}`;
+    const { signal, ...rest } = options;
+    const effectiveSignal = signal ?? AbortSignal.timeout(30_000);
     const res = await fetch(url, {
-        ...options,
+        ...rest,
+        signal: effectiveSignal,
         headers: {
             Authorization: TOKEN,
             "Content-Type": "application/json",

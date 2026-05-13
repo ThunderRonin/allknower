@@ -62,8 +62,9 @@ if (!prisma) {
     }
 
     if (!prisma) {
-        console.error(`🧠 \x1b[31mERROR\x1b[0m Could not connect to the database on any port.`);
-        prisma = createPrisma(defaultUrl); // Let it fail naturally on query
+        throw new Error(
+            `Failed to connect to PostgreSQL on any port. AllKnower cannot start.`
+        );
     }
 }
 
@@ -89,4 +90,4 @@ if (env.NODE_ENV !== "production") {
     globalThis.__prisma = prisma;
 }
 
-export default prisma as NonNullable<typeof prisma>;
+export default prisma!;
