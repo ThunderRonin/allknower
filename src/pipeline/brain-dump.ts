@@ -67,13 +67,13 @@ export interface BrainDumpInboxResult {
 export async function runBrainDump(
     rawText: string,
     mode: "auto" | "review" | "inbox" = "auto",
-    options: { autoRelate?: boolean; credentials?: EtapiCredentials } = {}
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string } = {}
 ): Promise<
     | (BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> })
     | BrainDumpReviewResult
     | BrainDumpInboxResult
 > {
-    const { autoRelate = true, credentials } = options;
+    const { autoRelate = true, credentials, userId } = options;
 
     // Inbox mode — client-side capture, no LLM call needed
     if (mode === "inbox") {
@@ -95,7 +95,7 @@ export async function runBrainDump(
     // Only use cache for auto mode (review always re-runs for fresh proposals)
     if (mode === "auto") {
         const existing = await prisma.brainDumpHistory.findFirst({
-            where: { rawTextHash },
+            where: { rawTextHash, userId: userId ?? null },
             orderBy: { createdAt: "desc" },
             select: { id: true, notesCreated: true, notesUpdated: true, parsedJson: true, model: true },
         });
@@ -183,7 +183,7 @@ export async function runBrainDump(
     }
 
     // Auto mode — write to AllCodex
-    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate, credentials);
+    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate, credentials, userId);
 }
 
 /**
@@ -193,7 +193,8 @@ export async function runBrainDump(
 export async function commitReviewedEntities(
     rawText: string,
     approvedEntities: ProposedEntity[],
-    credentials?: EtapiCredentials
+    credentials?: EtapiCredentials,
+    userId?: string
 ): Promise<BrainDumpResult & { reindexIds: string[] }> {
     const allcodexProbe = await probeAllCodex(credentials);
     if (!allcodexProbe.ok) {
@@ -215,7 +216,7 @@ export async function commitReviewedEntities(
         tags: e.tags,
     }));
 
-    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true, credentials);
+    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true, credentials, userId);
 }
 
 async function _writeEntitiesToAllCodex(
@@ -234,7 +235,8 @@ async function _writeEntitiesToAllCodex(
     tokensUsed: number,
     model: string,
     autoRelate: boolean,
-    credentials?: EtapiCredentials
+    credentials?: EtapiCredentials,
+    userId?: string
 ): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
     const created: BrainDumpResult["created"] = [];
     const updated: BrainDumpResult["updated"] = [];
@@ -354,6 +356,7 @@ async function _writeEntitiesToAllCodex(
                 notesUpdated: updated.map((n) => n.noteId),
                 model,
                 tokensUsed,
+                userId,
             },
         });
     }

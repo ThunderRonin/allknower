@@ -111,27 +111,27 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
                         title: name,
                         type: "text",
                         content: entry.content ?? "",
-                    });
+                    }, credentials);
 
                     const noteId = note.note.noteId;
 
                     // Apply statblock template
-                    await setNoteTemplate(noteId, "_template_statblock");
+                    await setNoteTemplate(noteId, "_template_statblock", credentials);
 
                     // Set crName promoted attribute (name as statblock name field)
-                    await tagNote(noteId, "crName", name);
+                    await tagNote(noteId, "crName", name, credentials);
 
                     // Set #statblock label
-                    await tagNote(noteId, "statblock", "");
+                    await tagNote(noteId, "statblock", "", credentials);
 
                     // Set #importSource
-                    await tagNote(noteId, "importSource", "system-pack");
+                    await tagNote(noteId, "importSource", "system-pack", credentials);
 
                     // Map other attributes
                     for (const [key, attrName] of ATTR_MAP) {
                         const val = entry[key];
                         if (val !== undefined && val !== null && val !== "") {
-                            await tagNote(noteId, attrName, String(val));
+                            await tagNote(noteId, attrName, String(val), credentials);
                         }
                     }
 
@@ -207,7 +207,7 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
     )
     .post(
         "/import/azgaar",
-        async ({ body }) => {
+        async ({ body, session }) => {
             const { mapData, parentNoteId, options } = body;
 
             if (!isAzgaarMapData(mapData)) {
@@ -216,6 +216,8 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
                     code: "INVALID_FORMAT",
                 }), { status: 400, headers: { "Content-Type": "application/json" } });
             }
+
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
 
             try {
                 const result = await importAzgaarMap(mapData, {
@@ -226,6 +228,7 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
                     importCultures: options?.importCultures ?? true,
                     importNotes: options?.importNotes ?? true,
                     skipDuplicates: options?.skipDuplicates ?? true,
+                    credentials,
                 });
                 return result;
             } catch (e: unknown) {

@@ -27,11 +27,12 @@ mock.module("../db/client.ts", () => ({
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
-import { setupRoute } from "./setup.ts";
+import { createSetupRoute } from "./setup.ts";
+import { requireAuthBypass } from "../../test/helpers/auth.ts";
 import { requestJson } from "../../test/helpers/http.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 
-const app = new Elysia().use(setupRoute);
+const app = new Elysia().use(createSetupRoute({ requireAuthImpl: requireAuthBypass }));
 
 beforeEach(() => {
     mockCreateNote.mockClear();

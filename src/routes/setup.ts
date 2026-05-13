@@ -177,7 +177,9 @@ const TEMPLATE_TITLES: Record<keyof typeof TEMPLATE_ID_MAP, string> = {
 
 const CONTAINER_NOTE_ID = "_lore_templates_container";
 
-export const setupRoute = new Elysia({ prefix: "/setup" })
+export function createSetupRoute({ requireAuthImpl = requireAuth }: { requireAuthImpl?: typeof requireAuth } = {}) {
+    return new Elysia({ prefix: "/setup" })
+    .use(requireAuthImpl)
     /**
      * POST /setup/seed-templates
      *
@@ -259,3 +261,6 @@ export const setupRoute = new Elysia({ prefix: "/setup" })
             },
         }
     );
+}
+
+export const setupRoute = createSetupRoute();

@@ -52,6 +52,10 @@ mock.module("../pipeline/prompt.ts", () => ({
     callLLM: callLLMMock,
 }));
 
+mock.module("../integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://localhost:8080", token: "test-token" })),
+}));
+
 const { consistencyRoute } = await import("./consistency.ts");
 
 const app = new Elysia().use(consistencyRoute);

@@ -143,10 +143,10 @@ function emptyBucket() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function buildExistingSet(label: string): Promise<Set<string>> {
+async function buildExistingSet(label: string, credentials?: EtapiCredentials): Promise<Set<string>> {
     const existing = new Set<string>();
     try {
-        const notes = await getAllCodexNotes(`#${label}`);
+        const notes = await getAllCodexNotes(`#${label}`, credentials);
         for (const n of notes) {
             if (n.title) existing.add(n.title.toLowerCase().trim());
         }
@@ -273,7 +273,7 @@ export async function importAzgaarMap(
 
     // --- States (Kingdoms, Empires → _template_faction) ----------------------
     if (importStates) {
-        const existing = skipDuplicates ? await buildExistingSet("faction") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("faction", opts.credentials) : new Set<string>();
         const states = (pack.states ?? []).filter((s) => s.i > 0 && !s.removed && s.name?.trim());
 
         for (const state of states) {
@@ -307,7 +307,7 @@ export async function importAzgaarMap(
 
     // --- Burgs (Cities, Towns → _template_location) --------------------------
     if (importBurgs) {
-        const existing = skipDuplicates ? await buildExistingSet("location") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("location", opts.credentials) : new Set<string>();
         // Skip i === 0 (reserved) and removed burgs
         const burgs = (pack.burgs ?? []).filter((b) => b.i > 0 && !b.removed && b.name?.trim());
 
@@ -368,7 +368,7 @@ export async function importAzgaarMap(
 
     // --- Religions (→ _template_religion) ------------------------------------
     if (importReligions) {
-        const existing = skipDuplicates ? await buildExistingSet("religion") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("religion", opts.credentials) : new Set<string>();
         const religions = (pack.religions ?? []).filter((r) => r.i > 0 && !r.removed && r.name?.trim());
 
         for (const rel of religions) {
@@ -404,7 +404,7 @@ export async function importAzgaarMap(
 
     // --- Cultures (→ _template_race) -----------------------------------------
     if (importCultures) {
-        const existing = skipDuplicates ? await buildExistingSet("race") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("race", opts.credentials) : new Set<string>();
         const cultures = (pack.cultures ?? []).filter((c) => c.i > 0 && !c.removed && c.name?.trim());
 
         for (const culture of cultures) {
@@ -432,7 +432,7 @@ export async function importAzgaarMap(
 
     // --- Map Notes (POI / annotations → _template_location) ------------------
     if (importNotes) {
-        const existing = skipDuplicates ? await buildExistingSet("location") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("location", opts.credentials) : new Set<string>();
         const mapNotes = (mapData.notes ?? []).filter((n) => n.name?.trim());
 
         for (const mn of mapNotes) {

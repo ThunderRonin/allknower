@@ -4,6 +4,7 @@ import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { queryLore } from "../rag/lancedb.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { env } from "../env.ts";
 import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
@@ -44,14 +45,15 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
     )
     .post(
     "/check",
-    async ({ body }) => {
+    async ({ body, session }) => {
+        const credentials = await resolveAllCodexCredentials(session!.user.id);
         type NoteEntry = { noteId: string; title: string; content: string };
         let notes: NoteEntry[];
 
         if (body.noteIds?.length) {
             // Explicit mode: fetch requested notes and pass full content
             const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
-            const etapiNotes = await getAllCodexNotes(search);
+            const etapiNotes = await getAllCodexNotes(search, credentials);
 
             if (etapiNotes.length === 0) {
                 return { issues: [], summary: "No lore notes found to check." };
@@ -59,7 +61,7 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
 
             notes = await Promise.all(
                 etapiNotes.map(async (note) => {
-                    const content = await getNoteContent(note.noteId).catch(() => "");
+                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
                     const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
                     return { noteId: note.noteId, title: note.title, content: plain };
                 })

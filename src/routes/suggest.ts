@@ -1,7 +1,7 @@
 import Elysia, { t } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { queryLore } from "../rag/lancedb.ts";
-import { getAllCodexNotes } from "../etapi/client.ts";
+import { getAllCodexNotes, type EtapiCredentials } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
@@ -21,8 +21,8 @@ const GAP_DETECT_MAX_PROMOTED_ATTRS = 3;
 const GAP_DETECT_USER_PROMPT =
     "Analyze this lore corpus against the core worldbuilding pillars. Return at most 5 gaps. Keep each description and suggestion concise.";
 
-async function runGapDetect() {
-    const notes = await getAllCodexNotes("#lore");
+async function runGapDetect(credentials: EtapiCredentials) {
+    const notes = await getAllCodexNotes("#lore", credentials);
 
     const typeCounts: Record<string, number> = {};
     const entriesByType: Record<string, Array<{ title: string; noteId: string; snippet: string }>> = {};
@@ -181,7 +181,10 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .get(
         "/gaps",
-        runGapDetect,
+        async ({ session }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+            return runGapDetect(credentials);
+        },
         {
             detail: {
                 summary: "Detect lore gaps",
@@ -193,7 +196,10 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
     )
     .post(
         "/gaps",
-        runGapDetect,
+        async ({ session }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+            return runGapDetect(credentials);
+        },
         {
             detail: {
                 summary: "Detect lore gaps",

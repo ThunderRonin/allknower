@@ -42,8 +42,9 @@ export function createBrainDumpRoute({
         "/",
         async ({ body, backgroundTasks, session }) => {
             const mode = body.mode ?? "auto";
-            const credentials = await resolveAllCodexCredentials(session!.user.id);
-            const result = await runBrainDumpImpl(body.rawText, mode, { credentials });
+            const userId = session!.user.id;
+            const credentials = await resolveAllCodexCredentials(userId);
+            const result = await runBrainDumpImpl(body.rawText, mode, { credentials, userId });
 
             if ("reindexIds" in result) {
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
@@ -79,8 +80,9 @@ export function createBrainDumpRoute({
     .post(
         "/commit",
         async ({ body, backgroundTasks, session }) => {
-            const credentials = await resolveAllCodexCredentials(session!.user.id);
-            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities, credentials);
+            const userId = session!.user.id;
+            const credentials = await resolveAllCodexCredentials(userId);
+            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities, credentials, userId);
             const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
             for (const noteId of (reindexIds ?? [])) {
                 backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
@@ -107,12 +109,13 @@ export function createBrainDumpRoute({
     )
     .get(
         "/history",
-        async ({ query }) => {
+        async ({ query, session }) => {
             const { default: prisma } = await import("../db/client.ts");
             const limit = Math.min(Number(query.limit ?? 20), 100);
             const cursor = query.cursor;
 
             const history = await prisma.brainDumpHistory.findMany({
+                where: { userId: session!.user.id },
                 orderBy: { createdAt: "desc" },
                 take: limit + 1,
                 ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -147,7 +150,7 @@ export function createBrainDumpRoute({
     )
     .get(
         "/history/:id",
-        async ({ params, set }) => {
+        async ({ params, set, session }) => {
             const { default: prisma } = await import("../db/client.ts");
             const entry = await prisma.brainDumpHistory.findUnique({
                 where: { id: params.id },
@@ -160,16 +163,18 @@ export function createBrainDumpRoute({
                     model: true,
                     tokensUsed: true,
                     createdAt: true,
+                    userId: true,
                 },
             });
-            if (!entry) {
+            if (!entry || entry.userId !== session!.user.id) {
                 set.status = 404;
                 return { error: "Brain dump entry not found", code: "ENTRY_NOT_FOUND" };
             }
             // Extract summary from parsedJson if present
             const parsed = entry.parsedJson as Record<string, unknown> | null;
+            const { userId: _uid, ...rest } = entry;
             return {
-                ...entry,
+                ...rest,
                 summary: (parsed?.summary as string | null) ?? null,
             };
         },
