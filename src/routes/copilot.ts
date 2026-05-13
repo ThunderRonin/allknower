@@ -34,9 +34,16 @@ const CopilotRagChunkBody = t.Object({
     score: t.Number(),
 });
 
-export const copilotRoute = new Elysia({ prefix: "/copilot" })
-    .use(requireAuth)
-    .use(
+type CopilotRouteDeps = {
+    requireAuthImpl?: typeof requireAuth;
+};
+
+export function createCopilotRoute({
+    requireAuthImpl = requireAuth,
+}: CopilotRouteDeps = {}) {
+    return new Elysia({ prefix: "/copilot" })
+        .use(requireAuthImpl)
+        .use(
         rateLimit({
             max: env.AI_RATE_LIMIT_MAX,
             duration: env.AI_RATE_LIMIT_WINDOW_MS,
@@ -72,3 +79,6 @@ export const copilotRoute = new Elysia({ prefix: "/copilot" })
             },
         }
     );
+}
+
+export const copilotRoute = createCopilotRoute();

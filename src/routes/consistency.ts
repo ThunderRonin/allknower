@@ -28,9 +28,16 @@ const MAX_NOTE_CHARS = 600;
 const CONSISTENCY_TIMEOUT_MS = 120_000;
 const CONSISTENCY_MAX_TOKENS = 2000;
 
-export const consistencyRoute = new Elysia({ prefix: "/consistency" })
-    .use(requireAuth)
-    .use(
+type ConsistencyRouteDeps = {
+    requireAuthImpl?: typeof requireAuth;
+};
+
+export function createConsistencyRoute({
+    requireAuthImpl = requireAuth,
+}: ConsistencyRouteDeps = {}) {
+    return new Elysia({ prefix: "/consistency" })
+        .use(requireAuthImpl)
+        .use(
         rateLimit({
             max: env.AI_RATE_LIMIT_MAX,
             duration: env.AI_RATE_LIMIT_WINDOW_MS,
@@ -129,3 +136,6 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
         },
     }
 );
+}
+
+export const consistencyRoute = createConsistencyRoute();
