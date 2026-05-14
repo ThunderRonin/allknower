@@ -20,7 +20,9 @@ export const envSchema = z.object({
     // better-auth
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().default("http://localhost:3001"),
-    PORTAL_INTERNAL_SECRET: z.string().default(""),
+    PORTAL_INTERNAL_SECRET: z.string().default(
+        process.env.NODE_ENV === "production" ? "" : "dev-portal-secret-32chars!!!"
+    ),
     INTEGRATION_CREDENTIALS_KEY: z.string().default(""),
 
     // OpenRouter
@@ -101,6 +103,7 @@ export const envSchema = z.object({
     // AllCodex ETAPI
     ALLCODEX_URL: z.string().default("http://localhost:8080"),
     ALLCODEX_ETAPI_TOKEN: z.string().min(1),
+    ALLCODEX_PASSWORD: z.string().default(""),
 
     // Rate limiting
     BRAIN_DUMP_RATE_LIMIT_MAX: z.coerce
