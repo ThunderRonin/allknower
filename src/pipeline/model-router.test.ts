@@ -26,6 +26,8 @@ mock.module("../env.ts", () => ({
         OPENROUTER_API_KEY: "test-key",
         LLM_TIMEOUT_MS: 120000,
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+        DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+        NODE_ENV: "test",
     },
 }));
 

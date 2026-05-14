@@ -8,6 +8,8 @@ mock.module("../env.ts", () => ({
         RAG_CONTEXT_MAX_TOKENS: 6000,
         RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD: 0.85,
         RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: 400,
+        DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+        NODE_ENV: "test",
     },
 }));
 

@@ -31,8 +31,11 @@ let prisma = globalThis.__prisma;
 
 if (!prisma) {
     const defaultUrl = env.DATABASE_URL;
+    if (!defaultUrl) {
+        throw new Error("DATABASE_URL is not set. AllKnower cannot connect to PostgreSQL.");
+    }
     const fallbackPorts = ["5433", "5432", "5434", "5435"];
-    
+
     // We try the default URL first. Then we parse out the port and try the fallbacks.
     const urlsToTry = [defaultUrl];
     
