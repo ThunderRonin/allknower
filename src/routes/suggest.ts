@@ -13,6 +13,7 @@ import { AUTOCOMPLETE_SYSTEM } from "../pipeline/prompts/autocomplete.ts";
 import { GAP_DETECT_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
 import { GapDetectResponseSchema } from "../pipeline/schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 
 const GAP_DETECT_TIMEOUT_MS = 120_000;
 const GAP_DETECT_MAX_TOKENS = 700;
@@ -205,6 +206,43 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 summary: "Detect lore gaps",
                 description:
                     "Analyzes the lore corpus against worldbuilding pillars and identifies structural, narrative, and thematic gaps.",
+                tags: ["Intelligence"],
+            },
+        }
+    )
+    .post(
+        "/gaps/stream",
+        async ({ session, set }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    try {
+                        send("status", { stage: "fetch", message: "Fetching lore entries..." });
+                        const result = await runGapDetect(credentials);
+                        send("result", result);
+                        send("done", { totalNotes: result.totalNotes });
+                    } catch (e) {
+                        send("error", { error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                    }
+                },
+            });
+        },
+        {
+            detail: {
+                summary: "Detect lore gaps (streaming)",
+                description: "Streaming variant with status events for progress.",
                 tags: ["Intelligence"],
             },
         }

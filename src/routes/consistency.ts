@@ -10,6 +10,7 @@ import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
 import { ConsistencyResponseSchema } from "../pipeline/schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 
 /**
  * Semantic probes used to find the most relevant lore notes when no noteIds are
@@ -135,7 +136,118 @@ export function createConsistencyRoute({
             tags: ["Intelligence"],
         },
     }
-);
+)
+    .post(
+        "/check/stream",
+        async ({ body, session, set }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    try {
+                        send("status", { stage: "analyze", message: "Analyzing notes..." });
+
+                        type NoteEntry = { noteId: string; title: string; content: string };
+                        let notes: NoteEntry[];
+
+                        if (body.noteIds?.length) {
+                            const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
+                            const etapiNotes = await getAllCodexNotes(search, credentials);
+
+                            if (etapiNotes.length === 0) {
+                                send("result", { issues: [], summary: "No lore notes found to check." });
+                                send("done", {});
+                                controller.close();
+                                return;
+                            }
+
+                            notes = await Promise.all(
+                                etapiNotes.map(async (note) => {
+                                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
+                                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+                                    return { noteId: note.noteId, title: note.title, content: plain };
+                                })
+                            );
+                        } else {
+                            const chunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+                            const sampled = chunks.map((chunk) => ({
+                                noteId: chunk.noteId,
+                                title: chunk.noteTitle,
+                                content: chunk.content,
+                            }));
+
+                            if (sampled.length === 0) {
+                                send("result", { issues: [], summary: "No lore notes found to check." });
+                                send("done", {});
+                                controller.close();
+                                return;
+                            }
+
+                            notes = sampled;
+                        }
+
+                        const loreSummaries = notes.map(({ noteId, title, content }) => {
+                            const excerpt = content.slice(0, MAX_NOTE_CHARS);
+                            return `## ${title} (${noteId})\n${excerpt}`;
+                        });
+
+                        const context = `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
+                        const user = `Check these lore entries for consistency issues.`;
+
+                        const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
+                            jsonSchema: CONSISTENCY_JSON_SCHEMA,
+                            timeoutMs: CONSISTENCY_TIMEOUT_MS,
+                            maxTokens: CONSISTENCY_MAX_TOKENS,
+                        });
+
+                        let result: unknown;
+                        try {
+                            const parsed = JSON.parse(raw);
+                            const validated = ConsistencyResponseSchema.safeParse(parsed);
+                            if (validated.success) {
+                                result = validated.data;
+                            } else {
+                                rootLogger.warn("Consistency stream response failed validation", {
+                                    errors: validated.error.issues,
+                                });
+                                result = { issues: [], summary: "LLM response failed validation." };
+                            }
+                        } catch {
+                            result = { issues: [], summary: "Failed to parse consistency check response." };
+                        }
+
+                        send("result", result);
+                        send("done", {});
+                    } catch (e) {
+                        send("error", { error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                    }
+                },
+            });
+        },
+        {
+            body: t.Object({
+                noteIds: t.Optional(
+                    t.Array(t.String(), { description: "Specific note IDs to check. Omit to use semantic sampling across all lore." })
+                ),
+            }),
+            detail: {
+                summary: "Run consistency check (streaming)",
+                description: "Streaming variant with status events for progress.",
+                tags: ["Intelligence"],
+            },
+        }
+    );
 }
 
 export const consistencyRoute = createConsistencyRoute();
