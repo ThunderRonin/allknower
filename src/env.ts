@@ -67,6 +67,11 @@ export const envSchema = z.object({
         .default(4096)
         .pipe(z.number().positive()),
 
+    // Streaming timeouts (user-facing pipelines)
+    LLM_FIRST_CHUNK_TIMEOUT_MS: z.coerce.number().optional().default(30000).pipe(z.number().positive()),
+    LLM_INACTIVITY_TIMEOUT_MS: z.coerce.number().optional().default(15000).pipe(z.number().positive()),
+    LLM_MAX_DURATION_MS: z.coerce.number().optional().default(300000).pipe(z.number().positive()),
+
     // LLM timeout — per-request AbortController limit in milliseconds
     LLM_TIMEOUT_MS: z.coerce
         .number()
