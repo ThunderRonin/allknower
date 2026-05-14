@@ -91,6 +91,7 @@ mock.module("../src/etapi/client.ts", () => ({
     tagNote: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
     probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({

@@ -20,10 +20,16 @@ mock.module("../../src/pipeline/prompt.ts", () => ({
 
 mock.module("../../src/etapi/client.ts", () => ({
     getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
+    getNoteContent: mock(async () => ""),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
+    updateNote: mock(async (noteId: string) => ({ noteId })),
+    setNoteContent: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     tagNote: mock(async () => {}),
     createAttribute: mock(async () => {}),
+    createRelation: mock(async () => {}),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
 }));

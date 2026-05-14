@@ -21,12 +21,17 @@ const mockChunkText = mock((_text: string) => ["chunk 1", "chunk 2"]);
 mock.module("../etapi/client.ts", () => ({
     getNoteContent: mockGetNoteContent,
     getAllCodexNotes: mockGetAllCodexNotes,
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     createNote: mock(async () => ({ note: { noteId: "new-note" }, branch: {} })),
     tagNote: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId })),
+    createAttribute: mock(async () => ({})),
+    createRelation: mock(async () => {}),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("./lancedb.ts", () => ({

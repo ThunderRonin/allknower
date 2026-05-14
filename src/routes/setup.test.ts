@@ -12,11 +12,15 @@ mock.module("../etapi/client.ts", () => ({
     tagNote: mockTagNote,
     createAttribute: mockCreateAttribute,
     getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
+    createRelation: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async () => ({})),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../db/client.ts", () => ({

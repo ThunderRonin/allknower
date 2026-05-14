@@ -24,11 +24,15 @@ mock.module("../etapi/client.ts", () => ({
     setNoteTemplate: mockSetNoteTemplate,
     tagNote: mockTagNote,
     getAllCodexNotes: mockGetAllCodexNotes,
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
     createAttribute: mock(async () => ({ attributeId: "a" })),
+    createRelation: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async () => ({})),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../pipeline/azgaar.ts", () => ({

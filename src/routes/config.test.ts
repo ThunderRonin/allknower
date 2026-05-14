@@ -13,6 +13,7 @@ mock.module("../db/client.ts", () => ({
 mock.module("../etapi/client.ts", () => ({
     invalidateCredentialCache: invalidateMock,
     getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
     createNote: mock(async () => ({ note: { noteId: "n" }, branch: {} })),
     setNoteContent: mock(async () => {}),

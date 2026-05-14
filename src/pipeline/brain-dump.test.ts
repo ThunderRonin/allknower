@@ -52,6 +52,7 @@ mock.module("../etapi/client.ts", () => ({
     tagNote: tagNoteMock,
     createAttribute: createAttributeMock,
     getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
     createRelation: mock(async () => {}),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
