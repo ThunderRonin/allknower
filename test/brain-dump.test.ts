@@ -20,6 +20,7 @@ mock.module("../src/integrations/allcodex.ts", () => ({
 mock.module("../src/pipeline/prompt.ts", () => ({
     buildBrainDumpPrompt: mock(() => ({ system: "sys", context: "ctx", user: "usr" })),
     callLLM: mock(async () => ({ raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 })),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 mock.module("../src/etapi/client.ts", () => ({

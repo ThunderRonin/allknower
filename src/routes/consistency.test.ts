@@ -50,6 +50,8 @@ mock.module("../etapi/client.ts", () => ({
 
 mock.module("../pipeline/prompt.ts", () => ({
     callLLM: callLLMMock,
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
+    buildBrainDumpPrompt: mock(() => ({ system: "sys", context: "ctx", user: "usr" })),
 }));
 
 mock.module("../integrations/allcodex.ts", () => ({

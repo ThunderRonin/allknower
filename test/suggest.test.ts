@@ -118,7 +118,8 @@ mock.module("../src/pipeline/prompt.ts", () => ({
                 suggestions: [{ title: "Aether Keep" }],
             })
         };
-    })
+    }),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 mock.module("../src/db/client.ts", () => ({

@@ -15,6 +15,8 @@ mock.module("../plugins/auth-guard.ts", () => ({
 
 mock.module("../pipeline/article-copilot.ts", () => ({
     runArticleCopilotTurn: runArticleCopilotTurnMock,
+    runArticleCopilotStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
+    validateProposalScope: mock((proposal: any) => proposal),
 }));
 
 const { copilotRoute } = await import("./copilot.ts");

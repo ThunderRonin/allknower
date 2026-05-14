@@ -14,7 +14,8 @@ mock.module("../../src/pipeline/prompt.ts", () => ({
         }),
         tokensUsed: 100,
         model: "testing-model"
-    }))
+    })),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 mock.module("../../src/etapi/client.ts", () => ({

@@ -101,7 +101,8 @@ mock.module("../src/pipeline/prompt.ts", () => ({
                 summary: "Found a contradiction",
             })
         };
-    })
+    }),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 const { consistencyRoute } = await import("../src/routes/consistency.ts");
