@@ -43,12 +43,12 @@ bun typecheck              # tsc --noEmit only
 bun run check              # canonical CI command — typecheck + all test groups
 bun test test/             # unit tests (test/ directory)
 bun test src/etapi/        # ETAPI client tests
-bun test src/pipeline/     # pipeline tests
+bun test src/pipeline/parser.test.ts   # each pipeline file individually
 bun test src/routes/       # route tests
-bun test src/rag/indexer.test.ts   # individual rag files (not bun test src/rag/)
+bun test src/rag/indexer.test.ts       # each rag file individually
 ```
 
-**Never run `bun test src/rag/` as a directory** — CI runs each rag test file individually to avoid cross-file contamination. Use `bun run check` for the canonical CI-equivalent command.
+**Never run `bun test src/pipeline/` or `bun test src/rag/` as a directory** — CI runs each file individually to avoid cross-file mock.module() contamination. Use `bun run check` for the canonical CI-equivalent command.
 
 ### mock.module() Rules (Critical)
 
@@ -56,7 +56,8 @@ Bun's `mock.module()` replaces the entire module in the shared registry for the 
 
 1. **Every `mock.module()` must export the full surface area of the real module** — not just the functions the test uses. Missing exports cascade as `SyntaxError: Export named 'X' not found` in downstream test files.
 2. **When adding a new export to a source module**, grep for all `mock.module()` calls targeting it and add the export to each.
-3. Tests run as separate per-directory invocations (`bun test test/`, `bun test src/etapi/`, etc.) to limit contamination scope. See `package.json` `test` script for the canonical groups.
+3. Pipeline and rag tests run as **individual file invocations** (not per-directory) to prevent cross-file contamination. `db/client.ts` has a top-level `await` that `mock.module()` cannot suppress — env mocks that lack `DATABASE_URL` will crash it. See `package.json` `test` script for canonical groups.
+4. **When mocking `../env.ts`**, always include `DATABASE_URL` and `NODE_ENV` — even if the test doesn't use them. Other files' side-effects read env during module graph resolution.
 
 The two most-mocked modules are `src/etapi/client.ts` (13 function exports) and `src/integrations/allcodex.ts` (5 exports + 1 class). Both need complete mocks in every test file that references them.
 
