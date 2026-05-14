@@ -147,7 +147,9 @@ export async function runBrainDump(
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
-    const { raw, tokensUsed, model } = await callLLM(system, user, "brain-dump", context);
+    const { raw, tokensUsed, model } = await callLLM(system, user, "brain-dump", context, {
+        reasoning: { effort: "low" },
+    });
 
 
     // Step 4: Parse response

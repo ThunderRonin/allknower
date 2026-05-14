@@ -131,6 +131,7 @@ export async function callWithFallback(
         };
         requestId?: string;
         timeoutMs?: number;
+        reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         log?: Logger;
     }
 ): Promise<LLMResult> {
@@ -171,6 +172,7 @@ export async function callWithFallback(
                         spanName: task,
                     } as any,
                 }),
+                ...(options?.reasoning && { reasoning: options.reasoning }),
                 plugins: [
                     { id: "response-healing" as const },
                 ],
