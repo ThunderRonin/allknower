@@ -30,6 +30,7 @@ mock.module("../src/etapi/client.ts", () => ({
     createAttribute: mock(async () => ({})),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => {
         if (returnNoNotes) {
             return [];

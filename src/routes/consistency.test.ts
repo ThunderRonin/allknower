@@ -45,6 +45,7 @@ mock.module("../etapi/client.ts", () => ({
     setNoteTemplate: setNoteTemplateMock,
     tagNote: tagNoteMock,
     createRelation: createRelationMock,
+    deleteNote: mock(async () => {}),
     checkAllCodexHealth: checkAllCodexHealthMock,
 }));
 

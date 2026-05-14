@@ -42,6 +42,7 @@ mock.module("./prompt.ts", () => ({
 
 mock.module("../etapi/client.ts", () => ({
     createRelation: mockCreateRelation,
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => []),
     getNote: mockGetNote,
     getNoteContent: mock(async () => ""),

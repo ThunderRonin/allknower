@@ -174,6 +174,11 @@ export async function createNote(params: CreateNoteParams, credentials?: EtapiCr
     return res.json() as Promise<{ note: EtapiNote; branch: any }>;
 }
 
+/** Delete a note by ID */
+export async function deleteNote(noteId: string, credentials?: EtapiCredentials): Promise<void> {
+    await etapiFetch(`/notes/${noteId}`, { method: "DELETE" }, credentials);
+}
+
 /** Update note metadata (title, type) */
 export async function updateNote(
     noteId: string,

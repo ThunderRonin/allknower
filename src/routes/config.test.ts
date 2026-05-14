@@ -4,10 +4,22 @@ import { mock } from "bun:test";
 const upsertMock = mock(async () => ({}));
 const invalidateMock = mock(() => {});
 
+const deleteManyMock = mock(async () => ({ count: 0 }));
+
 mock.module("../db/client.ts", () => ({
     default: {
         appConfig: { upsert: upsertMock },
+        loreSessionMessage: { deleteMany: deleteManyMock },
+        loreSession: { deleteMany: deleteManyMock },
+        lLMCallLog: { deleteMany: deleteManyMock },
+        ragIndexMeta: { deleteMany: deleteManyMock },
+        brainDumpHistory: { deleteMany: deleteManyMock },
+        relationHistory: { deleteMany: deleteManyMock },
     },
+}));
+
+mock.module("../rag/lancedb.ts", () => ({
+    wipeDatabase: mock(async () => {}),
 }));
 
 mock.module("../etapi/client.ts", () => ({
@@ -18,12 +30,21 @@ mock.module("../etapi/client.ts", () => ({
     createNote: mock(async () => ({ note: { noteId: "n" }, branch: {} })),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async (id: string) => ({ noteId: id })),
+    deleteNote: mock(async () => {}),
     tagNote: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     createAttribute: mock(async () => {}),
     createRelation: mock(async () => {}),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
+}));
+
+mock.module("../integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://localhost:8080", token: "test-token" })),
+    connectAllCodexIntegration: mock(async () => {}),
+    getAllCodexIntegrationStatus: mock(async () => null),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {},
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────────────

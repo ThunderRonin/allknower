@@ -80,6 +80,7 @@ mock.module("../src/etapi/client.ts", () => ({
     createAttribute: mock(async () => ({})),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => [
         { noteId: "1", title: "Aria", attributes: [{ name: "loreType", value: "character", type: "label" }] },
         { noteId: "2", title: "Citadel", attributes: [{ name: "loreType", value: "location", type: "label" }] },

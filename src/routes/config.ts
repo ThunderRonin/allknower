@@ -2,7 +2,8 @@ import { Elysia, t } from "elysia";
 import { execFileSync } from "child_process";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import prisma from "../db/client.ts";
-import { invalidateCredentialCache } from "../etapi/client.ts";
+import { invalidateCredentialCache, getAllCodexNotes, deleteNote } from "../etapi/client.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { rootLogger } from "../logger.ts";
 
 function isDevBranch(): boolean {
@@ -63,6 +64,24 @@ export function createConfigRoute({
                     return { error: "Not found" };
                 }
 
+                // 1. Delete lore notes from AllCodex Core via ETAPI
+                let coreDeleted = 0;
+                try {
+                    const credentials = await resolveAllCodexCredentials(session!.user.id);
+                    const loreNotes = await getAllCodexNotes("#lore", credentials);
+                    for (const note of loreNotes) {
+                        try {
+                            await deleteNote(note.noteId, credentials);
+                            coreDeleted++;
+                        } catch (err) {
+                            rootLogger.warn("Failed to delete Core note", { noteId: note.noteId, error: String(err) });
+                        }
+                    }
+                } catch (err) {
+                    rootLogger.warn("Could not wipe Core lore notes (ETAPI unavailable or no credentials)", { error: String(err) });
+                }
+
+                // 2. Wipe AllKnower RAG + Postgres
                 const { wipeDatabase } = await import("../rag/lancedb.ts");
                 await wipeDatabase();
 
@@ -73,8 +92,8 @@ export function createConfigRoute({
                 await prisma.brainDumpHistory.deleteMany();
                 await prisma.relationHistory.deleteMany();
 
-                rootLogger.info("Database wiped (LanceDB, LoreSessionMessages, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)");
-                return { ok: true };
+                rootLogger.info("Full wipe complete", { coreDeleted });
+                return { ok: true, coreDeleted };
             },
             {
                 detail: {

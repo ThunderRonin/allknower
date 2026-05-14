@@ -39,6 +39,7 @@ mock.module("../src/etapi/client.ts", () => ({
     setNoteTemplate: mock(async () => {}),
     createAttribute: mock(async () => {}),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
     probeAllCodex: mock(async () => ({ ok: true })),
