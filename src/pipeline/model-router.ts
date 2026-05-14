@@ -133,11 +133,15 @@ export async function callWithFallback(
         requestId?: string;
         timeoutMs?: number;
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+        modelOverride?: string;
         log?: Logger;
     }
 ): Promise<LLMResult> {
     const log = options?.log ?? rootLogger;
-    const models = getModelChain(task);
+    const baseChain = getModelChain(task);
+    const models = options?.modelOverride
+        ? [options.modelOverride, ...baseChain.filter(m => m !== options.modelOverride)]
+        : baseChain;
 
     if (models.length === 0) {
         throw new Error(
@@ -240,11 +244,15 @@ export async function* callModelStream(
         };
         requestId?: string;
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+        modelOverride?: string;
         log?: Logger;
     }
 ): AsyncGenerator<StreamChunk> {
     const log = options?.log ?? rootLogger;
-    const models = getModelChain(task);
+    const baseChain = getModelChain(task);
+    const models = options?.modelOverride
+        ? [options.modelOverride, ...baseChain.filter(m => m !== options.modelOverride)]
+        : baseChain;
 
     if (models.length === 0) {
         yield { type: "error", error: `No models configured for task "${task}"`, code: "NO_MODEL" };

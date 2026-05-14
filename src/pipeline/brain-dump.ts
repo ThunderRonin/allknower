@@ -68,13 +68,13 @@ export interface BrainDumpInboxResult {
 export async function runBrainDump(
     rawText: string,
     mode: "auto" | "review" | "inbox" = "auto",
-    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string } = {}
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string; model?: string } = {}
 ): Promise<
     | (BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> })
     | BrainDumpReviewResult
     | BrainDumpInboxResult
 > {
-    const { autoRelate = true, credentials, userId } = options;
+    const { autoRelate = true, credentials, userId, model } = options;
 
     // Inbox mode — client-side capture, no LLM call needed
     if (mode === "inbox") {
@@ -148,8 +148,9 @@ export async function runBrainDump(
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
-    const { raw, tokensUsed, model } = await callLLM(system, user, "brain-dump", context, {
+    const { raw, tokensUsed, model: usedModel } = await callLLM(system, user, "brain-dump", context, {
         reasoning: { effort: "low" },
+        modelOverride: model,
     });
 
 
@@ -186,7 +187,7 @@ export async function runBrainDump(
     }
 
     // Auto mode — write to AllCodex
-    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate, credentials, userId);
+    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, usedModel, autoRelate, credentials, userId);
 }
 
 /**
@@ -224,9 +225,9 @@ export async function commitReviewedEntities(
 
 export async function* runBrainDumpStream(
     rawText: string,
-    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string } = {}
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string; model?: string } = {}
 ): AsyncGenerator<StreamChunk> {
-    const { autoRelate = true, credentials, userId } = options;
+    const { autoRelate = true, credentials, userId, model } = options;
 
     // Preflight
     yield { type: "status", stage: "preflight", message: "Checking AllCodex connection..." };
@@ -292,6 +293,7 @@ export async function* runBrainDumpStream(
 
     for await (const chunk of callLLMStream(system, user, "brain-dump", context, {
         reasoning: { effort: "low" },
+        modelOverride: model,
     })) {
         if (chunk.type === "token") {
             rawResponse += chunk.content;

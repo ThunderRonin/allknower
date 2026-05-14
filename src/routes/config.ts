@@ -4,6 +4,8 @@ import { requireAuth } from "../plugins/auth-guard.ts";
 import prisma from "../db/client.ts";
 import { invalidateCredentialCache, getAllCodexNotes, deleteNote } from "../etapi/client.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import { getModelChain } from "../pipeline/model-router.ts";
+import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 
 function isDevBranch(): boolean {
@@ -53,6 +55,25 @@ export function createConfigRoute({
                 detail: {
                     tags: ["System"],
                     summary: "Update AllCodex connection credentials",
+                },
+            }
+        )
+        .get(
+            "/config/models",
+            () => {
+                const autoMode = env.USE_OPENROUTER_AUTO === "true";
+                return {
+                    "brain-dump": {
+                        models: getModelChain("brain-dump"),
+                        autoMode,
+                    },
+                };
+            },
+            {
+                detail: {
+                    tags: ["System"],
+                    summary: "Get configured model chains",
+                    description: "Returns available models per task. When autoMode is true, OpenRouter auto-routing is active.",
                 },
             }
         )

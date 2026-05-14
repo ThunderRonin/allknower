@@ -4,6 +4,7 @@ import { background } from "elysia-background";
 import { runBrainDump, runBrainDumpStream, commitReviewedEntities } from "../pipeline/brain-dump.ts";
 import { sseEncode } from "../pipeline/stream-types.ts";
 import { indexNote } from "../rag/indexer.ts";
+import { getModelChain } from "../pipeline/model-router.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
@@ -43,11 +44,20 @@ export function createBrainDumpRoute({
     )
     .post(
         "/",
-        async ({ body, backgroundTasks, session }) => {
+        async ({ body, backgroundTasks, session, set }) => {
             const mode = body.mode ?? "auto";
             const userId = session!.user.id;
+
+            if (body.model) {
+                const allowed = getModelChain("brain-dump");
+                if (!allowed.includes(body.model)) {
+                    set.status = 400;
+                    return { error: "INVALID_MODEL", message: `Model not in configured chain. Allowed: ${allowed.join(", ")}` };
+                }
+            }
+
             const credentials = await resolveAllCodexCredentials(userId);
-            const result = await runBrainDumpImpl(body.rawText, mode, { credentials, userId });
+            const result = await runBrainDumpImpl(body.rawText, mode, { credentials, userId, model: body.model });
 
             if ("reindexIds" in result) {
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
@@ -71,6 +81,7 @@ export function createBrainDumpRoute({
                     t.Literal("review"),
                     t.Literal("inbox"),
                 ], { description: "Processing mode: auto writes immediately, review returns proposals, inbox queues without processing" })),
+                model: t.Optional(t.String({ description: "Override primary model (must be in configured chain)" })),
             }),
             detail: {
                 summary: "Process a brain dump",
@@ -84,6 +95,15 @@ export function createBrainDumpRoute({
         "/stream",
         async ({ body, session, set }) => {
             const userId = session!.user.id;
+
+            if (body.model) {
+                const allowed = getModelChain("brain-dump");
+                if (!allowed.includes(body.model)) {
+                    set.status = 400;
+                    return { error: "INVALID_MODEL", message: `Model not in configured chain. Allowed: ${allowed.join(", ")}` };
+                }
+            }
+
             const credentials = await resolveAllCodexCredentials(userId);
 
             set.headers["Content-Type"] = "text/event-stream";
@@ -103,6 +123,7 @@ export function createBrainDumpRoute({
                             autoRelate: body.autoRelate ?? true,
                             credentials,
                             userId,
+                            model: body.model,
                         })) {
                             send(chunk.type, chunk);
                             if (chunk.type === "done") {
@@ -137,6 +158,7 @@ export function createBrainDumpRoute({
                     maxLength: 50000,
                 }),
                 autoRelate: t.Optional(t.Boolean({ default: true })),
+                model: t.Optional(t.String({ description: "Override primary model (must be in configured chain)" })),
             }),
             detail: {
                 summary: "Process brain dump (streaming)",
