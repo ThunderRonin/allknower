@@ -49,7 +49,13 @@ mock.module("../db/client.ts", () => ({
 }));
 
 mock.module("../integrations/allcodex.ts", () => ({
-    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" })),
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
 }));
 
 import { beforeEach, describe, expect, it } from "bun:test";

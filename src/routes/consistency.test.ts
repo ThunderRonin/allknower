@@ -56,6 +56,12 @@ mock.module("../pipeline/prompt.ts", () => ({
 
 mock.module("../integrations/allcodex.ts", () => ({
     resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://localhost:8080", token: "test-token" })),
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
 }));
 
 const { consistencyRoute } = await import("./consistency.ts");

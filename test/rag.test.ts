@@ -11,7 +11,13 @@ mock.module("../src/plugins/auth-guard.ts", () => ({
 }));
 
 mock.module("../src/integrations/allcodex.ts", () => ({
-    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" }))
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" })),
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({

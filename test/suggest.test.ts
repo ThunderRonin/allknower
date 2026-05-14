@@ -60,6 +60,9 @@ mock.module("../src/integrations/allcodex.ts", () => ({
         baseUrl: "http://localhost:8080",
         token: "test-etapi-token",
     })),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
