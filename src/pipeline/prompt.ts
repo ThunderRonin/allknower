@@ -1,5 +1,6 @@
 import type { RagChunk } from "../types/lore.ts";
-import { callWithFallback, type TaskType } from "./model-router.ts";
+import { callWithFallback, callModelStream, type TaskType } from "./model-router.ts";
+import type { StreamChunk } from "./stream-types.ts";
 import { countTokens } from "../utils/tokens.ts";
 import { deduplicateChunks } from "../rag/chunk-dedup.ts";
 import { compactChunks } from "../rag/chunk-compactor.ts";
@@ -245,6 +246,47 @@ export async function callLLM(
         temperature: options?.temperature ?? 0.3,
         maxTokens: options?.maxTokens ?? 30000,
         timeoutMs: options?.timeoutMs,
+        responseFormat,
+        reasoning: options?.reasoning,
+    });
+}
+
+/**
+ * Streaming variant of callLLM. Yields StreamChunk items for SSE/streaming routes.
+ *
+ * Key differences from callLLM:
+ *   - Returns AsyncGenerator<StreamChunk> instead of Promise<LLMResult>
+ *   - No cache_control on messages (Responses API handles caching differently)
+ *   - No timeoutMs option (streaming uses inactivity-based timeouts in callModelStream)
+ *   - Uses yield* to delegate to callModelStream
+ */
+export async function* callLLMStream(
+    system: string,
+    user: string,
+    task: TaskType = "brain-dump",
+    context?: string,
+    options?: {
+        jsonSchema?: { name: string; schema: Record<string, unknown> };
+        maxTokens?: number;
+        temperature?: number;
+        reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+    }
+): AsyncGenerator<StreamChunk> {
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: system },
+    ];
+    if (context) {
+        messages.push({ role: "user", content: context });
+    }
+    messages.push({ role: "user", content: user });
+
+    const responseFormat = options?.jsonSchema
+        ? { type: "json_schema" as const, jsonSchema: { name: options.jsonSchema.name, schema: options.jsonSchema.schema, strict: true } }
+        : { type: "json_object" as const };
+
+    yield* callModelStream(task, messages, {
+        temperature: options?.temperature ?? 0.3,
+        maxTokens: options?.maxTokens ?? 30000,
         responseFormat,
         reasoning: options?.reasoning,
     });
