@@ -324,4 +324,117 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 tags: ["Intelligence"],
             },
         }
+    )
+    /**
+     * Autocomplete (streaming) — same three-phase logic as /autocomplete but
+     * sends Phase 1 and Phase 2 results immediately via SSE so the client can
+     * render suggestions while Phase 3 (rare LLM fallback) is still running.
+     */
+    .get(
+        "/autocomplete/stream",
+        async ({ query, set }) => {
+            const q = query.q;
+            const limit = Number(query.limit ?? 10);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    const seen = new Set<string>();
+                    const suggestions: Array<{ noteId: string; title: string }> = [];
+
+                    try {
+                        // Phase 1: instant prefix match
+                        const prefixMatches = await prisma.ragIndexMeta.findMany({
+                            where: { noteTitle: { contains: q, mode: "insensitive" } },
+                            take: limit,
+                            select: { noteId: true, noteTitle: true },
+                            orderBy: { noteTitle: "asc" },
+                        });
+
+                        for (const m of prefixMatches) {
+                            seen.add(m.noteId);
+                            suggestions.push({ noteId: m.noteId, title: m.noteTitle });
+                        }
+
+                        if (suggestions.length > 0) {
+                            send("suggestions", { suggestions, phase: "prefix" });
+                        }
+
+                        // Phase 2: semantic fill
+                        if (suggestions.length < limit) {
+                            const remaining = limit - suggestions.length;
+                            const semantic = await queryLore(q, remaining + seen.size);
+                            const newSuggestions: typeof suggestions = [];
+                            for (const chunk of semantic) {
+                                if (!seen.has(chunk.noteId)) {
+                                    const item = { noteId: chunk.noteId, title: chunk.noteTitle };
+                                    suggestions.push(item);
+                                    newSuggestions.push(item);
+                                    seen.add(chunk.noteId);
+                                }
+                                if (suggestions.length >= limit) break;
+                            }
+                            if (newSuggestions.length > 0) {
+                                send("suggestions", { suggestions: newSuggestions, phase: "semantic" });
+                            }
+                        }
+
+                        // Phase 3: LLM creative completion (rare fallback)
+                        if (suggestions.length < Math.min(3, limit)) {
+                            const MIN_INDEX_SIZE = 5;
+                            const indexCount = await prisma.ragIndexMeta.count();
+                            if (indexCount >= MIN_INDEX_SIZE) {
+                                try {
+                                    const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
+                                    const parsed = JSON.parse(raw);
+                                    const llmSuggestions: typeof suggestions = [];
+                                    for (const s of (parsed.suggestions ?? [])) {
+                                        if (suggestions.length >= limit) break;
+                                        const matches = await prisma.ragIndexMeta.findMany({
+                                            where: { noteTitle: { contains: s.title, mode: "insensitive" } },
+                                            take: 1,
+                                            select: { noteId: true, noteTitle: true },
+                                        });
+                                        if (matches.length > 0 && !seen.has(matches[0].noteId)) {
+                                            const item = { noteId: matches[0].noteId, title: matches[0].noteTitle };
+                                            suggestions.push(item);
+                                            llmSuggestions.push(item);
+                                            seen.add(matches[0].noteId);
+                                        }
+                                    }
+                                    if (llmSuggestions.length > 0) {
+                                        send("suggestions", { suggestions: llmSuggestions, phase: "llm" });
+                                    }
+                                } catch { /* LLM autocomplete is best-effort */ }
+                            }
+                        }
+
+                        send("done", { total: suggestions.length });
+                    } catch (e) {
+                        send("error", { error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                    }
+                },
+            });
+        },
+        {
+            query: t.Object({
+                q: t.String({ minLength: 1 }),
+                limit: t.Optional(t.Numeric({ minimum: 1, maximum: 20, default: 10 })),
+            }),
+            detail: {
+                summary: "Lore autocomplete (streaming)",
+                description: "Streaming variant that sends suggestions as they become available from each phase (prefix, semantic, LLM).",
+                tags: ["Intelligence"],
+            },
+        }
     );
