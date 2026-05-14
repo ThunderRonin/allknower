@@ -49,6 +49,7 @@ mock.module("../../src/etapi/client.ts", () => ({
 
 const HISTORY_ENTRY = {
     id: "hist-1",
+    userId: "test-user",
     rawText: "Arwen is an elf.",
     parsedJson: {
         entities: [{ noteId: "note-abc", title: "Arwen", type: "character", action: "created" }],
@@ -94,6 +95,15 @@ mock.module("../../src/rag/indexer.ts", () => ({
     indexNote: mock(async () => {}),
     fullReindex: mock(async () => ({ indexed: 0, failed: 0 })),
     reindexStaleNotes: mock(async () => ({ reindexed: 0, failed: 0, upToDate: 0 })),
+}));
+
+mock.module("../../src/bootstrap/index.ts", () => ({
+    getBootstrapStatus: mock(() => ({
+        ran: true,
+        userReady: true,
+        etapiReady: true,
+    })),
+    runBootstrap: mock(async () => {}),
 }));
 
 // ── App import (after all mocks) ──────────────────────────────────────────────

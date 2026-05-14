@@ -68,6 +68,19 @@ mock.module("../src/rag/lancedb.ts", () => ({
     }),
 }));
 
+mock.module("../src/integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({
+        baseUrl: "http://localhost:8080",
+        token: "mock-etapi-token",
+    })),
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
+}));
+
 mock.module("../src/pipeline/prompt.ts", () => ({
     buildBrainDumpPrompt: mock(buildBrainDumpPromptMock),
     callLLM: mock(async (_system: string, _user: string, task?: string) => {

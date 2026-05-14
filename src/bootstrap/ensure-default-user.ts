@@ -4,7 +4,7 @@ import { rootLogger } from "../logger.ts";
 
 const log = rootLogger.child({ module: "bootstrap" });
 
-const DEFAULT_EMAIL = "default@local";
+const DEFAULT_EMAIL = "default@allcodex.local";
 const DEFAULT_NAME = "Default User";
 
 export interface DefaultUser {

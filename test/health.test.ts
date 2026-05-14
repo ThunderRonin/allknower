@@ -44,6 +44,15 @@ mock.module("../src/db/client.ts", () => ({
     }
 }));
 
+mock.module("../src/bootstrap/index.ts", () => ({
+    getBootstrapStatus: mock(() => ({
+        ran: true,
+        userReady: true,
+        etapiReady: true,
+    })),
+    runBootstrap: mock(async () => {}),
+}));
+
 const { healthRoute } = await import("../src/routes/health.ts");
 
 const app = new Elysia().use(healthRoute);
@@ -65,6 +74,12 @@ describe("GET /health", () => {
                 allcodex: { ok: true },
                 lancedb: { ok: true },
                 database: { ok: true },
+                bootstrap: {
+                    ok: true,
+                    ran: true,
+                    userReady: true,
+                    etapiReady: true,
+                },
             },
         });
     });
