@@ -13,6 +13,7 @@ import { importRoute } from "./routes/import.ts";
 import { configRoute } from "./routes/config.ts";
 import { copilotRoute } from "./routes/copilot.ts";
 import { integrationsRoute, internalIntegrationsRoute } from "./routes/integrations.ts";
+import { autoProvisionRoute } from "./routes/auto-provision.ts";
 import { auth } from "./auth/index.ts";
 import { env } from "./env.ts";
 
@@ -74,6 +75,7 @@ export const app = new Elysia()
     .use(configRoute)
     .use(integrationsRoute)
     .use(internalIntegrationsRoute)
+    .use(autoProvisionRoute)
 
     // ── Root ──────────────────────────────────────────────────────────────────
     .get("/", () => ({
