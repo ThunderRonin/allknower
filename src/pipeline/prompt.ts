@@ -102,14 +102,66 @@ Attributes: domains, alignment, rank, symbol, worshippers, allies, enemies, secr
 Faiths, churches, cults, monastic orders, spiritual practices — organized belief systems around deities or philosophies.
 Attributes: deity, pantheon, tenets, clergy, holyDays, headquarters, followers, secrets
 
+### session
+Play sessions, game recaps — records of what happened at the table.
+Attributes: sessionDate, players, sessionStatus, recap, hooks
+
+### quest
+Active or completed quests, missions, objectives the party is tracking.
+Attributes: questStatus (active|completed|failed|deferred|unknown), questGiver, reward, location, objectives, hooks, secrets
+
+### scene
+Specific narrative scenes — encounters, conversations, set pieces.
+Attributes: location, participants, outcome, gmNotes
+
+## Content Formatting — Write Like a Wiki
+The "content" field is rich HTML rendered in a wiki-style grimoire. Write it like a fandom wiki article, NOT a single paragraph. Structure rich, facts strict — use formatting to ORGANIZE what's given, never fabricate details.
+
+### Required structure
+- Open with a <blockquote> epigraph if the source text contains a memorable quote, motto, or saying
+- Use <h2> for major sections (Overview, History, Relationships, Appearance, etc.)
+- Use <h3> for subsections within those
+- Separate major sections with <hr> dividers
+
+### Formatting tools — use liberally
+- <table> for structured data (stats, timelines, equipment, members lists, comparisons)
+- <ul>/<ol> for lists (allies, notable events, abilities, inventory)
+- <blockquote> for in-world quotes, proclamations, inscriptions
+- <strong> for key names and terms on first mention
+- <mark> for dramatic highlights (bounties, titles, critical facts)
+- <em> for in-world terms, ship names, titles of works
+- <details><summary>Title</summary>...content...</details> for collapsible supplementary data
+
+### GM-only content
+Wrap GM-secret narrative sections in <div class="gm-only">. Use this for:
+- Hidden agendas, secret allegiances, plot twists
+- Mechanical weaknesses the party could exploit
+- Plot hooks and encounter suggestions
+Put a short summary in the "secrets" attribute; put the full narrative in <div class="gm-only"> blocks.
+
+### Example content structure
+<blockquote>"Quote from or about the entity."<br><em>— Attribution</em></blockquote>
+<h2>Overview</h2>
+<p>Introductory paragraph with <strong>key terms</strong> bolded.</p>
+<hr>
+<h2>History</h2>
+<h3>Early Years</h3>
+<p>Narrative prose about origins...</p>
+<h3>Major Events</h3>
+<table><thead><tr><th>Date</th><th>Event</th><th>Outcome</th></tr></thead><tbody><tr><td>...</td><td>...</td><td>...</td></tr></tbody></table>
+<hr>
+<h2>Relationships</h2>
+<ul><li><strong>Name</strong> — relationship description</li></ul>
+<div class="gm-only"><h2>GM Notes</h2><p>Secret information...</p></div>
+
 ## Output Format
 Return a JSON object with this exact shape:
 {
   "entities": [
     {
-      "type": "<one of the 18 types above>",
+      "type": "<one of the 21 types above>",
       "title": "Entity name — use the canonical in-world name",
-      "content": "<p>HTML narrative description. This is the note body the user will read — make it flow naturally as worldbuilding prose, not a data dump.</p>",
+      "content": "<wiki-style HTML as described above>",
       "tags": ["tag1", "tag2"],
       "attributes": { /* type-specific fields only */ },
       "action": "create" | "update",
@@ -120,12 +172,12 @@ Return a JSON object with this exact shape:
 }
 
 ## Constraints
-- NEVER invent details not present in the raw text. If the text says "a powerful sword," do not name it or assign stats.
+- NEVER invent details not present in the raw text. If the text says "a powerful sword," do not name it or assign stats. Structure rich, facts strict.
 - NEVER contradict existing lore shown in the context. If context says a character is dead, do not mark them alive.
 - If the raw text mentions an entity that already exists in context, set action to "update" and include the existingNoteId. Merge new details with existing ones.
 - If you are unsure about a detail, omit that field entirely rather than guessing.
-- Secrets (GM-only info, hidden plot hooks, twists) go in the "secrets" attribute, NOT in the main content.
-- The "content" field is narrative HTML the user reads — write it as worldbuilding prose, not a bulleted attribute list.
+- Short secret summaries go in the "secrets" attribute. Detailed GM narrative goes in <div class="gm-only"> blocks inside content.
+- The content field is a wiki article — use headers, tables, lists, quotes, and dividers to organize it. Never output a single bare paragraph.
 - When a brain dump mentions multiple distinct entities, split them out. One entity per concept.
 - Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
 - If you run out of space, prioritize closing the JSON structure correctly over adding more entities. NEVER leave a JSON string or object truncated.`;
