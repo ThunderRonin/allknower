@@ -1,7 +1,8 @@
-import { OpenRouter } from "@openrouter/sdk";
+import { OpenRouter, fromChatMessages } from "@openrouter/sdk";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
+import type { StreamChunk } from "./stream-types.ts";
 
 /**
  * Model Router — per-task model selection with native OpenRouter fallbacks.
@@ -207,6 +208,168 @@ export async function callWithFallback(
         throw error;
     } finally {
         clearTimeout(timeoutId);
+    }
+}
+
+// ── Streaming LLM call with inactivity-based timeouts ────────────────────────
+
+/**
+ * Stream an LLM response via the OpenRouter Responses API with inactivity-based
+ * timeout protection. Yields `StreamChunk` items that callers (SSE routes) can
+ * forward directly to the client.
+ *
+ * Uses `openrouter.callModel()` + `result.getItemsStream()` — the newer
+ * Responses API — as opposed to `callWithFallback()` which uses the Chat
+ * Completions API. Both co-exist: non-streaming internal pipelines keep using
+ * `callWithFallback()`.
+ *
+ * Timeout strategy:
+ * - **First chunk**: abort if no data arrives within `LLM_FIRST_CHUNK_TIMEOUT_MS`.
+ * - **Inactivity**: abort if no data arrives for `LLM_INACTIVITY_TIMEOUT_MS` mid-stream.
+ * - **Max duration**: hard ceiling of `LLM_MAX_DURATION_MS` regardless of activity.
+ */
+export async function* callModelStream(
+    task: TaskType,
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    options?: {
+        temperature?: number;
+        maxTokens?: number;
+        responseFormat?: { type: "json_object" } | {
+            type: "json_schema";
+            jsonSchema: { name: string; schema: Record<string, unknown>; strict?: boolean };
+        };
+        requestId?: string;
+        reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+        log?: Logger;
+    }
+): AsyncGenerator<StreamChunk> {
+    const log = options?.log ?? rootLogger;
+    const models = getModelChain(task);
+
+    if (models.length === 0) {
+        yield { type: "error", error: `No models configured for task "${task}"`, code: "NO_MODEL" };
+        return;
+    }
+
+    const [primaryModel, ...fallbackModels] = models;
+    const startTime = performance.now();
+
+    // Timeout controllers
+    const controller = new AbortController();
+    const FIRST_CHUNK_MS = env.LLM_FIRST_CHUNK_TIMEOUT_MS;
+    const INACTIVITY_MS = env.LLM_INACTIVITY_TIMEOUT_MS;
+    const MAX_DURATION_MS = env.LLM_MAX_DURATION_MS;
+
+    let firstChunkReceived = false;
+    let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+    let maxDurationTimer: ReturnType<typeof setTimeout>;
+
+    let firstChunkTimer: ReturnType<typeof setTimeout> = setTimeout(() => {
+        if (!firstChunkReceived) {
+            controller.abort();
+        }
+    }, FIRST_CHUNK_MS);
+
+    maxDurationTimer = setTimeout(() => controller.abort(), MAX_DURATION_MS);
+
+    const resetInactivity = () => {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => controller.abort(), INACTIVITY_MS);
+    };
+
+    // Extract system message and build input
+    const systemMsg = messages.find(m => m.role === "system");
+    const nonSystemMessages = messages.filter(m => m.role !== "system");
+
+    // Build text format from responseFormat
+    const textFormat = options?.responseFormat?.type === "json_object"
+        ? { format: { type: "json_object" as const } }
+        : options?.responseFormat?.type === "json_schema"
+            ? { format: { type: "json_schema" as const, ...options.responseFormat.jsonSchema } }
+            : undefined;
+
+    let accumulatedText = "";
+    let tokensUsed = 0;
+    let usedModel = primaryModel;
+
+    try {
+        const result = openrouter.callModel({
+            model: primaryModel,
+            ...(fallbackModels.length > 0 && { models: fallbackModels }),
+            ...(systemMsg && { instructions: systemMsg.content }),
+            input: nonSystemMessages.length === 1 && nonSystemMessages[0].role === "user"
+                ? nonSystemMessages[0].content
+                : fromChatMessages(nonSystemMessages as any),
+            temperature: options?.temperature ?? 0.3,
+            maxOutputTokens: options?.maxTokens ?? 30000,
+            ...(textFormat && { text: textFormat }),
+            ...(options?.reasoning && { reasoning: options.reasoning }),
+            plugins: [{ id: "response-healing" as any }],
+            provider: {
+                allowFallbacks: true,
+                ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                ...(env.OPENROUTER_ZDR === "true" && { dataCollection: "deny" as any }),
+            } as any,
+        }, {
+            signal: controller.signal,
+        } as any);
+
+        for await (const item of result.getItemsStream()) {
+            if (!firstChunkReceived) {
+                firstChunkReceived = true;
+                clearTimeout(firstChunkTimer);
+                resetInactivity();
+            } else {
+                resetInactivity();
+            }
+
+            if (item.type === "reasoning") {
+                const summaryText = ((item as any).summary ?? [])
+                    .map((s: any) => s?.text ?? "")
+                    .join("");
+                yield { type: "reasoning", content: summaryText };
+            } else if (item.type === "message") {
+                const messageText = ((item as any).content ?? [])
+                    .filter((c: any) => c?.type === "output_text")
+                    .map((c: any) => c?.text ?? "")
+                    .join("");
+                const delta = messageText.slice(accumulatedText.length);
+                if (delta) {
+                    accumulatedText += delta;
+                    yield { type: "token", content: delta };
+                }
+            }
+        }
+
+        const response = await result.getResponse();
+        tokensUsed = (response.usage as any)?.totalTokens
+            ?? ((response.usage as any)?.inputTokens ?? 0) + ((response.usage as any)?.outputTokens ?? 0);
+        usedModel = (response as any).model ?? primaryModel;
+
+        const latencyMs = Math.round(performance.now() - startTime);
+
+        if (usedModel !== primaryModel) {
+            log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
+        }
+
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, latencyMs }, log);
+
+        yield { type: "done", raw: accumulatedText, tokensUsed, model: usedModel, latencyMs };
+    } catch (error) {
+        const latencyMs = Math.round(performance.now() - startTime);
+        if (error instanceof DOMException && error.name === "AbortError") {
+            const reason = !firstChunkReceived
+                ? `No response from model within ${FIRST_CHUNK_MS}ms`
+                : `Stream stalled (no data for ${INACTIVITY_MS}ms)`;
+            yield { type: "error", error: reason, code: "TIMEOUT" };
+        } else {
+            yield { type: "error", error: error instanceof Error ? error.message : String(error) };
+        }
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs }, log);
+    } finally {
+        clearTimeout(firstChunkTimer);
+        clearTimeout(inactivityTimer);
+        clearTimeout(maxDurationTimer);
     }
 }
 
