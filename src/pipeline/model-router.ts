@@ -147,7 +147,7 @@ export async function callWithFallback(
 
     const [primaryModel, ...fallbackModels] = models;
 
-    // Request timeout via AbortController
+    // Non-streaming timeout (streaming routes use callModelStream with inactivity-based timeouts)
     const TIMEOUT_MS = options?.timeoutMs ?? env.LLM_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);

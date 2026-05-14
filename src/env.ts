@@ -72,7 +72,8 @@ export const envSchema = z.object({
     LLM_INACTIVITY_TIMEOUT_MS: z.coerce.number().optional().default(15000).pipe(z.number().positive()),
     LLM_MAX_DURATION_MS: z.coerce.number().optional().default(300000).pipe(z.number().positive()),
 
-    // LLM timeout — per-request AbortController limit in milliseconds
+    // Legacy: non-streaming per-request timeout (used by callWithFallback only).
+    // Streaming routes use LLM_FIRST_CHUNK_TIMEOUT_MS / LLM_INACTIVITY_TIMEOUT_MS / LLM_MAX_DURATION_MS.
     LLM_TIMEOUT_MS: z.coerce
         .number()
         .optional()
