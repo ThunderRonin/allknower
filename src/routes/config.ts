@@ -66,13 +66,14 @@ export function createConfigRoute({
                 const { wipeDatabase } = await import("../rag/lancedb.ts");
                 await wipeDatabase();
 
+                await prisma.loreSessionMessage.deleteMany();
                 await prisma.loreSession.deleteMany();
                 await prisma.lLMCallLog.deleteMany();
                 await prisma.ragIndexMeta.deleteMany();
                 await prisma.brainDumpHistory.deleteMany();
                 await prisma.relationHistory.deleteMany();
 
-                rootLogger.info("Database wiped (LanceDB, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)");
+                rootLogger.info("Database wiped (LanceDB, LoreSessionMessages, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)");
                 return { ok: true };
             },
             {
