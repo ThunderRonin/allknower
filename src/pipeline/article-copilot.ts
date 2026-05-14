@@ -1,4 +1,5 @@
-import { callWithFallback } from "./model-router.ts";
+import { callWithFallback, callModelStream } from "./model-router.ts";
+import type { StreamChunk } from "./stream-types.ts";
 import { ARTICLE_COPILOT_SYSTEM } from "./prompts/article-copilot.ts";
 import {
     ArticleCopilotRequestSchema,
@@ -157,7 +158,7 @@ function validateTargetScope(target: CopilotProposalTarget, input: ArticleCopilo
     }
 }
 
-function validateProposalScope(response: ArticleCopilotResponse, input: ArticleCopilotRequest): ArticleCopilotResponse {
+export function validateProposalScope(response: ArticleCopilotResponse, input: ArticleCopilotRequest): ArticleCopilotResponse {
     if (!response.proposal) return response;
 
     const createTargetIds = new Set(
@@ -173,17 +174,22 @@ function validateProposalScope(response: ArticleCopilotResponse, input: ArticleC
     return response;
 }
 
-export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Promise<ArticleCopilotResponse> {
-    const input = ArticleCopilotRequestSchema.parse(rawInput);
+function buildCopilotMessages(input: ArticleCopilotRequest): Array<{ role: "system" | "user" | "assistant"; content: string }> {
     const context = buildContext(input);
     const transcript = input.transcript.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n\n");
     const user = `Continue the article-scoped copilot conversation.\n\n${transcript}`;
-
-    const result = await callWithFallback("article-copilot", [
+    return [
         { role: "system", content: ARTICLE_COPILOT_SYSTEM },
         { role: "user", content: context },
         { role: "user", content: user },
-    ], {
+    ];
+}
+
+export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Promise<ArticleCopilotResponse> {
+    const input = ArticleCopilotRequestSchema.parse(rawInput);
+    const messages = buildCopilotMessages(input);
+
+    const result = await callWithFallback("article-copilot", messages, {
         temperature: 0.2,
         maxTokens: 12000,
         responseFormat: {
@@ -205,4 +211,24 @@ export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Pr
 
     const response = ArticleCopilotResponseSchema.parse(parsed);
     return validateProposalScope(response, input);
+}
+
+export async function* runArticleCopilotStream(
+    rawInput: ArticleCopilotRequest,
+): AsyncGenerator<StreamChunk> {
+    const input = ArticleCopilotRequestSchema.parse(rawInput);
+    const messages = buildCopilotMessages(input);
+
+    yield* callModelStream("article-copilot", messages, {
+        temperature: 0.2,
+        maxTokens: 12000,
+        responseFormat: {
+            type: "json_schema",
+            jsonSchema: {
+                name: ARTICLE_COPILOT_JSON_SCHEMA.name,
+                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema as Record<string, unknown>,
+                strict: true,
+            },
+        },
+    });
 }

@@ -2,8 +2,9 @@ import Elysia, { t } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
-import { ArticleCopilotRequestSchema } from "../types/copilot.ts";
-import { runArticleCopilotTurn } from "../pipeline/article-copilot.ts";
+import { ArticleCopilotRequestSchema, ArticleCopilotResponseSchema } from "../types/copilot.ts";
+import { runArticleCopilotTurn, runArticleCopilotStream, validateProposalScope } from "../pipeline/article-copilot.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 
 const ChatMessageBody = t.Object({
     role: t.Union([t.Literal("user"), t.Literal("assistant")]),
@@ -75,6 +76,72 @@ export function createCopilotRoute({
                 summary: "Article-scoped lore copilot",
                 description:
                     "Generates discussion replies and reviewable proposals scoped to the current lore article and its direct writable neighbors.",
+                tags: ["Intelligence"],
+            },
+        }
+    )
+    .post(
+        "/article/stream",
+        async ({ body, set }) => {
+            const parsed = ArticleCopilotRequestSchema.parse(body);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    try {
+                        send("status", { stage: "llm", message: "Generating response..." });
+
+                        for await (const chunk of runArticleCopilotStream(parsed)) {
+                            if (chunk.type === "token") {
+                                send("token", { content: chunk.content });
+                            } else if (chunk.type === "reasoning") {
+                                send("reasoning", { content: chunk.content });
+                            } else if (chunk.type === "done") {
+                                try {
+                                    const jsonParsed = JSON.parse(chunk.raw);
+                                    const validated = ArticleCopilotResponseSchema.parse(jsonParsed);
+                                    const scoped = validateProposalScope(validated, parsed);
+                                    send("result", scoped);
+                                } catch (e) {
+                                    send("error", { error: e instanceof Error ? e.message : "Invalid copilot response" });
+                                }
+                                send("done", {
+                                    tokensUsed: chunk.tokensUsed,
+                                    model: chunk.model,
+                                    latencyMs: chunk.latencyMs,
+                                });
+                            } else if (chunk.type === "error") {
+                                send("error", { error: chunk.error, code: chunk.code });
+                            }
+                        }
+                    } catch (e) {
+                        send("error", { error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                    }
+                },
+            });
+        },
+        {
+            body: t.Object({
+                noteId: t.String(),
+                transcript: t.Array(ChatMessageBody),
+                currentNote: CopilotNoteContextBody,
+                linkedNotes: t.Array(CopilotNoteContextBody),
+                ragContext: t.Array(CopilotRagChunkBody),
+                writableTargetIds: t.Array(t.String()),
+            }),
+            detail: {
+                summary: "Article copilot (streaming SSE)",
+                description: "Streaming variant of /copilot/article. Returns SSE events: status, token, reasoning, result, done, error.",
                 tags: ["Intelligence"],
             },
         }
