@@ -1,8 +1,17 @@
 import { Elysia, t } from "elysia";
+import { execFileSync } from "child_process";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import prisma from "../db/client.ts";
 import { invalidateCredentialCache } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
+
+function isDevBranch(): boolean {
+    try {
+        return execFileSync("git", ["branch", "--show-current"], { encoding: "utf-8" }).trim() === "dev";
+    } catch {
+        return false;
+    }
+}
 
 /**
  * POST /config/allcodex
@@ -49,7 +58,7 @@ export function createConfigRoute({
         .post(
             "/config/wipe",
             async ({ set, session }) => {
-                if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEV_WIPE !== "true") {
+                if (process.env.NODE_ENV === "production" || !isDevBranch()) {
                     set.status = 404;
                     return { error: "Not found" };
                 }
