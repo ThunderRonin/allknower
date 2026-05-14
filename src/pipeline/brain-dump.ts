@@ -1,5 +1,6 @@
 import { queryLore } from "../rag/lancedb.ts";
-import { buildBrainDumpPrompt, callLLM } from "./prompt.ts";
+import { buildBrainDumpPrompt, callLLM, callLLMStream } from "./prompt.ts";
+import type { StreamChunk } from "./stream-types.ts";
 import { parseBrainDumpResponse } from "./parser.ts";
 import {
     createNote,
@@ -219,6 +220,108 @@ export async function commitReviewedEntities(
     }));
 
     return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true, credentials, userId);
+}
+
+export async function* runBrainDumpStream(
+    rawText: string,
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string } = {}
+): AsyncGenerator<StreamChunk> {
+    const { autoRelate = true, credentials, userId } = options;
+
+    // Preflight
+    yield { type: "status", stage: "preflight", message: "Checking AllCodex connection..." };
+    const allcodexProbe = await probeAllCodex(credentials);
+    if (!allcodexProbe.ok) {
+        yield { type: "error", error: `AllCodex is not connected: ${allcodexProbe.error}` };
+        return;
+    }
+
+    // Idempotency check
+    const rawTextHash = Buffer.from(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawText))
+    ).toString("hex");
+
+    const existing = await prisma.brainDumpHistory.findFirst({
+        where: { rawTextHash, userId: userId ?? null },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, parsedJson: true },
+    });
+    if (existing) {
+        const cached = existing.parsedJson as { summary: string };
+        yield { type: "status", stage: "cache", message: `Found cached result: ${cached.summary}` };
+        yield { type: "done", raw: JSON.stringify(existing.parsedJson), tokensUsed: 0, model: "cache", latencyMs: 0 };
+        return;
+    }
+
+    // RAG retrieval
+    yield { type: "status", stage: "rag", message: "Querying existing lore for context..." };
+    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
+    try {
+        ragContext = await queryLore(rawText, 10);
+    } catch (e: unknown) {
+        rootLogger.warn("General RAG retrieval failed, continuing without context", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    let statblockContext: typeof ragContext = [];
+    try {
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
+        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
+        if (statblockNoteIds.length > 0) {
+            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
+        }
+    } catch (e: unknown) {
+        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    const mergedContext = [...statblockContext, ...ragContext.filter(
+        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
+    )].slice(0, 12);
+
+    yield { type: "status", stage: "rag", message: `Found ${mergedContext.length} context chunks` };
+
+    // Build prompt + stream LLM
+    yield { type: "status", stage: "llm", message: "Sending to LLM..." };
+    const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
+
+    let rawResponse = "";
+    let llmMeta = { tokensUsed: 0, model: "", latencyMs: 0 };
+
+    for await (const chunk of callLLMStream(system, user, "brain-dump", context, {
+        reasoning: { effort: "low" },
+    })) {
+        if (chunk.type === "token") {
+            rawResponse += chunk.content;
+            yield chunk;
+        } else if (chunk.type === "reasoning") {
+            yield chunk;
+        } else if (chunk.type === "done") {
+            rawResponse = chunk.raw;
+            llmMeta = { tokensUsed: chunk.tokensUsed, model: chunk.model, latencyMs: chunk.latencyMs };
+        } else if (chunk.type === "error") {
+            yield chunk;
+            return;
+        }
+    }
+
+    // Parse
+    yield { type: "status", stage: "parse", message: "Parsing entities..." };
+    const { entities, summary } = parseBrainDumpResponse(rawResponse);
+    yield { type: "status", stage: "parse", message: `Found ${entities.length} entities` };
+
+    // Write to AllCodex
+    yield { type: "status", stage: "write", message: `Writing ${entities.length} entities to AllCodex...` };
+    const writeResult = await _writeEntitiesToAllCodex(
+        rawText, rawTextHash, entities, summary,
+        llmMeta.tokensUsed, llmMeta.model, autoRelate, credentials, userId
+    );
+
+    yield { type: "status", stage: "complete", message: `Created ${writeResult.created.length}, updated ${writeResult.updated.length}, skipped ${writeResult.skipped.length}` };
+
+    yield { type: "done", raw: JSON.stringify(writeResult), tokensUsed: llmMeta.tokensUsed, model: llmMeta.model, latencyMs: llmMeta.latencyMs };
 }
 
 async function _writeEntitiesToAllCodex(

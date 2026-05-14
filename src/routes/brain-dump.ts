@@ -1,7 +1,8 @@
 import Elysia, { t } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { background } from "elysia-background";
-import { runBrainDump, commitReviewedEntities } from "../pipeline/brain-dump.ts";
+import { runBrainDump, runBrainDumpStream, commitReviewedEntities } from "../pipeline/brain-dump.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 import { indexNote } from "../rag/indexer.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
@@ -9,6 +10,7 @@ import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 
 type BrainDumpRouteDeps = {
     runBrainDumpImpl?: typeof runBrainDump;
+    runBrainDumpStreamImpl?: typeof runBrainDumpStream;
     commitReviewedEntitiesImpl?: typeof commitReviewedEntities;
     indexNoteImpl?: typeof indexNote;
     requireAuthImpl?: typeof requireAuth;
@@ -17,6 +19,7 @@ type BrainDumpRouteDeps = {
 
 export function createBrainDumpRoute({
     runBrainDumpImpl = runBrainDump,
+    runBrainDumpStreamImpl = runBrainDumpStream,
     commitReviewedEntitiesImpl = commitReviewedEntities,
     indexNoteImpl = indexNote,
     requireAuthImpl = requireAuth,
@@ -73,6 +76,71 @@ export function createBrainDumpRoute({
                 summary: "Process a brain dump",
                 description:
                     "Accepts raw worldbuilding text, runs it through the RAG + LLM pipeline, and creates/updates lore entries in AllCodex.",
+                tags: ["Brain Dump"],
+            },
+        }
+    )
+    .post(
+        "/stream",
+        async ({ body, session, set }) => {
+            const userId = session!.user.id;
+            const credentials = await resolveAllCodexCredentials(userId);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    let resultJson = "";
+                    try {
+                        for await (const chunk of runBrainDumpStreamImpl(body.rawText, {
+                            autoRelate: body.autoRelate ?? true,
+                            credentials,
+                            userId,
+                        })) {
+                            send(chunk.type, chunk);
+                            if (chunk.type === "done") {
+                                resultJson = chunk.raw;
+                            }
+                        }
+                    } catch (e) {
+                        send("error", { type: "error", error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                        // Fire-and-forget reindex for created/updated notes
+                        if (resultJson) {
+                            try {
+                                const result = JSON.parse(resultJson);
+                                const reindexIds = [
+                                    ...(result.created ?? []).map((n: { noteId: string }) => n.noteId),
+                                    ...(result.updated ?? []).map((n: { noteId: string }) => n.noteId),
+                                ];
+                                for (const noteId of reindexIds) {
+                                    indexNoteImpl(noteId, credentials).catch(() => {});
+                                }
+                            } catch {}
+                        }
+                    }
+                },
+            });
+        },
+        {
+            body: t.Object({
+                rawText: t.String({
+                    minLength: 10,
+                    maxLength: 50000,
+                }),
+                autoRelate: t.Optional(t.Boolean({ default: true })),
+            }),
+            detail: {
+                summary: "Process brain dump (streaming)",
+                description: "Streaming variant of /brain-dump. Returns SSE events for each pipeline stage: status, token, reasoning, done, error.",
                 tags: ["Brain Dump"],
             },
         }
