@@ -36,26 +36,32 @@ export const envSchema = z.object({
     BRAIN_DUMP_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     BRAIN_DUMP_FALLBACK_1: z.string().default(""),
     BRAIN_DUMP_FALLBACK_2: z.string().default(""),
+    BRAIN_DUMP_FALLBACK_3: z.string().default(""),
 
     ARTICLE_COPILOT_MODEL: z.string().default(""),
     ARTICLE_COPILOT_FALLBACK_1: z.string().default(""),
     ARTICLE_COPILOT_FALLBACK_2: z.string().default(""),
+    ARTICLE_COPILOT_FALLBACK_3: z.string().default(""),
 
     CONSISTENCY_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     CONSISTENCY_FALLBACK_1: z.string().default(""),
     CONSISTENCY_FALLBACK_2: z.string().default(""),
+    CONSISTENCY_FALLBACK_3: z.string().default(""),
 
     SUGGEST_MODEL: z.string().default("google/gemini-3.1-flash-lite"),
     SUGGEST_FALLBACK_1: z.string().default(""),
     SUGGEST_FALLBACK_2: z.string().default(""),
+    SUGGEST_FALLBACK_3: z.string().default(""),
 
     GAP_DETECT_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     GAP_DETECT_FALLBACK_1: z.string().default(""),
     GAP_DETECT_FALLBACK_2: z.string().default(""),
+    GAP_DETECT_FALLBACK_3: z.string().default(""),
 
     AUTOCOMPLETE_MODEL: z.string().default("openai/gpt-5-nano"),
     AUTOCOMPLETE_FALLBACK_1: z.string().default(""),
     AUTOCOMPLETE_FALLBACK_2: z.string().default(""),
+    AUTOCOMPLETE_FALLBACK_3: z.string().default(""),
 
     RERANK_MODEL: z.string().default("cohere/rerank-4-pro"),
 
@@ -99,6 +105,7 @@ export const envSchema = z.object({
     COMPACT_MODEL: z.string().default("qwen/qwen3.5-flash-02-23"),
     COMPACT_FALLBACK_1: z.string().default("openai/gpt-5-nano"),
     COMPACT_FALLBACK_2: z.string().default(""),
+    COMPACT_FALLBACK_3: z.string().default(""),
 
     // Context compaction — Tier 3: session autocompact (future)
     SESSION_TOKEN_THRESHOLD: z.coerce.number().default(80000),

@@ -29,6 +29,7 @@ interface ModelChain {
     primary: string;
     fallback1: string;
     fallback2: string;
+    fallback3: string;
 }
 
 // ── OpenRouter SDK client (singleton) ─────────────────────────────────────────
@@ -53,46 +54,54 @@ export function getModelChain(task: TaskType): string[] {
             primary: env.BRAIN_DUMP_MODEL,
             fallback1: env.BRAIN_DUMP_FALLBACK_1,
             fallback2: env.BRAIN_DUMP_FALLBACK_2,
+            fallback3: env.BRAIN_DUMP_FALLBACK_3,
         },
         "article-copilot": {
             primary: env.ARTICLE_COPILOT_MODEL || env.BRAIN_DUMP_MODEL,
             fallback1: env.ARTICLE_COPILOT_FALLBACK_1 || env.BRAIN_DUMP_FALLBACK_1,
             fallback2: env.ARTICLE_COPILOT_FALLBACK_2 || env.BRAIN_DUMP_FALLBACK_2,
+            fallback3: env.ARTICLE_COPILOT_FALLBACK_3 || env.BRAIN_DUMP_FALLBACK_3,
         },
         consistency: {
             primary: env.CONSISTENCY_MODEL,
             fallback1: env.CONSISTENCY_FALLBACK_1,
             fallback2: env.CONSISTENCY_FALLBACK_2,
+            fallback3: env.CONSISTENCY_FALLBACK_3,
         },
         suggest: {
             primary: env.SUGGEST_MODEL,
             fallback1: env.SUGGEST_FALLBACK_1,
             fallback2: env.SUGGEST_FALLBACK_2,
+            fallback3: env.SUGGEST_FALLBACK_3,
         },
         "gap-detect": {
             primary: env.GAP_DETECT_MODEL,
             fallback1: env.GAP_DETECT_FALLBACK_1,
             fallback2: env.GAP_DETECT_FALLBACK_2,
+            fallback3: env.GAP_DETECT_FALLBACK_3,
         },
         autocomplete: {
             primary: env.AUTOCOMPLETE_MODEL,
             fallback1: env.AUTOCOMPLETE_FALLBACK_1,
             fallback2: env.AUTOCOMPLETE_FALLBACK_2,
+            fallback3: env.AUTOCOMPLETE_FALLBACK_3,
         },
         compact: {
             primary: env.COMPACT_MODEL,
             fallback1: env.COMPACT_FALLBACK_1,
             fallback2: env.COMPACT_FALLBACK_2,
+            fallback3: env.COMPACT_FALLBACK_3,
         },
         "session-compact": {
             primary: env.COMPACT_MODEL,
             fallback1: env.COMPACT_FALLBACK_1,
             fallback2: env.COMPACT_FALLBACK_2,
+            fallback3: env.COMPACT_FALLBACK_3,
         },
     };
 
     const chain = chains[task];
-    return [chain.primary, chain.fallback1, chain.fallback2].filter(
+    return [chain.primary, chain.fallback1, chain.fallback2, chain.fallback3].filter(
         (m) => m.length > 0
     );
 }
