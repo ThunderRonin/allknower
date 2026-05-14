@@ -33,7 +33,7 @@ export const envSchema = z.object({
     USE_OPENROUTER_AUTO: z.string().default("false"),
 
     // LLM Models — per-task primary + up to 2 fallbacks (empty string = disabled)
-    BRAIN_DUMP_MODEL: z.string().default("x-ai/grok-4.1-fast"),
+    BRAIN_DUMP_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     BRAIN_DUMP_FALLBACK_1: z.string().default(""),
     BRAIN_DUMP_FALLBACK_2: z.string().default(""),
 
@@ -41,19 +41,19 @@ export const envSchema = z.object({
     ARTICLE_COPILOT_FALLBACK_1: z.string().default(""),
     ARTICLE_COPILOT_FALLBACK_2: z.string().default(""),
 
-    CONSISTENCY_MODEL: z.string().default("moonshotai/kimi-k2.5"),
+    CONSISTENCY_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     CONSISTENCY_FALLBACK_1: z.string().default(""),
     CONSISTENCY_FALLBACK_2: z.string().default(""),
 
-    SUGGEST_MODEL: z.string().default("aion-labs/aion-2.0"),
+    SUGGEST_MODEL: z.string().default("google/gemini-3.1-flash-lite"),
     SUGGEST_FALLBACK_1: z.string().default(""),
     SUGGEST_FALLBACK_2: z.string().default(""),
 
-    GAP_DETECT_MODEL: z.string().default("aion-labs/aion-2.0"),
+    GAP_DETECT_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
     GAP_DETECT_FALLBACK_1: z.string().default(""),
     GAP_DETECT_FALLBACK_2: z.string().default(""),
 
-    AUTOCOMPLETE_MODEL: z.string().default("liquid/lfm-24b"),
+    AUTOCOMPLETE_MODEL: z.string().default("openai/gpt-5-nano"),
     AUTOCOMPLETE_FALLBACK_1: z.string().default(""),
     AUTOCOMPLETE_FALLBACK_2: z.string().default(""),
 
@@ -90,8 +90,8 @@ export const envSchema = z.object({
 
     // Context compaction — Tier 2: chunk summarization
     RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: z.coerce.number().default(600),
-    COMPACT_MODEL: z.string().default("anthropic/claude-haiku-4-5-20251001"),
-    COMPACT_FALLBACK_1: z.string().default("openai/gpt-4.1-nano"),
+    COMPACT_MODEL: z.string().default("qwen/qwen3.5-flash-02-23"),
+    COMPACT_FALLBACK_1: z.string().default("openai/gpt-5-nano"),
     COMPACT_FALLBACK_2: z.string().default(""),
 
     // Context compaction — Tier 3: session autocompact (future)
