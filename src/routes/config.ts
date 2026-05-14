@@ -63,18 +63,16 @@ export function createConfigRoute({
                     return { error: "Not found" };
                 }
 
-                const uid = session!.user.id;
-
                 const { wipeDatabase } = await import("../rag/lancedb.ts");
                 await wipeDatabase();
 
-                await prisma.loreSession.deleteMany({ where: { userId: uid } });
-                await prisma.lLMCallLog.deleteMany({ where: { userId: uid } });
+                await prisma.loreSession.deleteMany();
+                await prisma.lLMCallLog.deleteMany();
                 await prisma.ragIndexMeta.deleteMany();
-                await prisma.brainDumpHistory.deleteMany({ where: { userId: uid } });
-                await prisma.relationHistory.deleteMany({ where: { userId: uid } });
+                await prisma.brainDumpHistory.deleteMany();
+                await prisma.relationHistory.deleteMany();
 
-                rootLogger.info("Database wiped (LanceDB, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)", { userId: uid });
+                rootLogger.info("Database wiped (LanceDB, LoreSessions, LlmCallLogs, RagIndexMeta, BrainDumpHistory, RelationHistory)");
                 return { ok: true };
             },
             {
