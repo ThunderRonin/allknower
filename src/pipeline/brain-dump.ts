@@ -458,7 +458,14 @@ async function _writeEntitiesToAllCodex(
             data: {
                 rawText,
                 rawTextHash,
-                parsedJson: JSON.parse(JSON.stringify({ entities, summary })),
+                parsedJson: JSON.parse(JSON.stringify({
+                    entities: entities.map(e => {
+                        const c = created.find(n => n.title === e.title);
+                        const u = updated.find(n => n.title === e.title);
+                        return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
+                    }),
+                    summary,
+                })),
                 notesCreated: created.map((n) => n.noteId),
                 notesUpdated: updated.map((n) => n.noteId),
                 model,
