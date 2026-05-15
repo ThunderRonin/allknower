@@ -2,6 +2,7 @@ import Elysia from "elysia";
 import { createNote, createAttribute, tagNote } from "../etapi/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 
 /**
  * Promoted attribute definitions for each lore template.
@@ -189,7 +190,8 @@ export function createSetupRoute({ requireAuthImpl = requireAuth }: { requireAut
      */
     .post(
         "/seed-templates",
-        async () => {
+        async ({ session }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
             const results: { type: string; noteId: string; status: "created" | "already_exists" | "error"; error?: string }[] = [];
 
             // 1. Ensure the container note exists
@@ -200,8 +202,8 @@ export function createSetupRoute({ requireAuthImpl = requireAuth }: { requireAut
                     title: "Lore Templates",
                     type: "text",
                     content: "<p>AllKnower-managed lore template notes. Do not delete.</p>",
-                });
-                await tagNote(CONTAINER_NOTE_ID, "loreTemplates");
+                }, credentials);
+                await tagNote(CONTAINER_NOTE_ID, "loreTemplates", "", credentials);
             } catch {
                 // Already exists — that's fine
             }
@@ -215,10 +217,10 @@ export function createSetupRoute({ requireAuthImpl = requireAuth }: { requireAut
                         title: TEMPLATE_TITLES[type],
                         type: "text",
                         content: "",
-                    });
+                    }, credentials);
 
                     // Mark as a Trilium template
-                    await tagNote(noteId, "template");
+                    await tagNote(noteId, "template", "", credentials);
 
                     // Add promoted attribute definitions so Trilium renders a form
                     for (const field of TEMPLATE_FIELDS[type]) {
@@ -227,7 +229,7 @@ export function createSetupRoute({ requireAuthImpl = requireAuth }: { requireAut
                             type: "label",
                             name: `label:${field.name}`,
                             value: `promoted,${field.valueType}`,
-                        });
+                        }, credentials);
                     }
 
                     results.push({ type, noteId, status: "created" });

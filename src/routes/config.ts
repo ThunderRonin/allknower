@@ -102,18 +102,19 @@ export function createConfigRoute({
                     rootLogger.warn("Could not wipe Core lore notes (ETAPI unavailable or no credentials)", { error: String(err) });
                 }
 
-                // 2. Wipe AllKnower RAG + Postgres
+                // 2. Wipe AllKnower data scoped to current user
+                const uid = session!.user.id;
+                await prisma.loreSession.deleteMany({ where: { userId: uid } });
+                await prisma.lLMCallLog.deleteMany({ where: { userId: uid } });
+                await prisma.brainDumpHistory.deleteMany({ where: { userId: uid } });
+                await prisma.relationHistory.deleteMany({ where: { userId: uid } });
+
+                // RAG + RagIndexMeta: full wipe (indexes are note-scoped, not user-scoped)
                 const { wipeDatabase } = await import("../rag/lancedb.ts");
                 await wipeDatabase();
-
-                await prisma.loreSessionMessage.deleteMany();
-                await prisma.loreSession.deleteMany();
-                await prisma.lLMCallLog.deleteMany();
                 await prisma.ragIndexMeta.deleteMany();
-                await prisma.brainDumpHistory.deleteMany();
-                await prisma.relationHistory.deleteMany();
 
-                rootLogger.info("Full wipe complete", { coreDeleted });
+                rootLogger.info("User data wipe complete", { userId: uid, coreDeleted });
                 return { ok: true, coreDeleted };
             },
             {
