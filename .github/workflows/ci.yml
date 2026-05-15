@@ -1,0 +1,46 @@
+name: CI
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck & Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: allknower
+          POSTGRES_PASSWORD: allknower
+          POSTGRES_DB: allknower
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U allknower"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://allknower:allknower@localhost:5433/allknower
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Generate Prisma client
+        run: bunx prisma generate
+      - name: Run migrations
+        run: bunx prisma migrate deploy
+      - name: Typecheck
+        run: bun typecheck
+      - name: Test
+        run: bun run check
