@@ -30,6 +30,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://allknower:allknower@localhost:5433/allknower
       NODE_ENV: test
+      BETTER_AUTH_SECRET: ci-test-secret-minimum-16-chars
+      OPENROUTER_API_KEY: sk-or-ci-dummy-key
+      ALLCODEX_ETAPI_TOKEN: ci-dummy-etapi-token
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
