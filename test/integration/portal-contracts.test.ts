@@ -46,6 +46,7 @@ mock.module("../../src/etapi/client.ts", () => ({
     setNoteContent: mock(async () => {}),
     updateNote: mock(async (id: string) => ({ noteId: id })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
 }));
 
 const HISTORY_ENTRY = {
