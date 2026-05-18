@@ -4,30 +4,40 @@ import { mock } from "bun:test";
 mock.module("../env.ts", () => ({
     env: {
         USE_OPENROUTER_AUTO: "false",
-        BRAIN_DUMP_MODEL: "x-ai/grok-4.1-fast",
+        BRAIN_DUMP_MODEL: "x-ai/grok-4.3",
         BRAIN_DUMP_FALLBACK_1: "",
         BRAIN_DUMP_FALLBACK_2: "",
+        BRAIN_DUMP_FALLBACK_3: "",
+        ARTICLE_COPILOT_MODEL: "",
+        ARTICLE_COPILOT_FALLBACK_1: "",
+        ARTICLE_COPILOT_FALLBACK_2: "",
+        ARTICLE_COPILOT_FALLBACK_3: "",
         CONSISTENCY_MODEL: "moonshotai/kimi-k2.5",
         CONSISTENCY_FALLBACK_1: "",
         CONSISTENCY_FALLBACK_2: "",
+        CONSISTENCY_FALLBACK_3: "",
         SUGGEST_MODEL: "aion-labs/aion-2.0",
         SUGGEST_FALLBACK_1: "",
         SUGGEST_FALLBACK_2: "",
+        SUGGEST_FALLBACK_3: "",
         GAP_DETECT_MODEL: "aion-labs/aion-2.0",
         GAP_DETECT_FALLBACK_1: "",
         GAP_DETECT_FALLBACK_2: "",
+        GAP_DETECT_FALLBACK_3: "",
         AUTOCOMPLETE_MODEL: "liquid/lfm-24b",
         AUTOCOMPLETE_FALLBACK_1: "",
         AUTOCOMPLETE_FALLBACK_2: "",
-        RERANK_MODEL: "openai/gpt-5-nano",
-        RERANK_FALLBACK_1: "",
-        RERANK_FALLBACK_2: "",
+        AUTOCOMPLETE_FALLBACK_3: "",
+        RERANK_MODEL: "cohere/rerank-4-pro",
         COMPACT_MODEL: "anthropic/claude-haiku-4-5-20251001",
         COMPACT_FALLBACK_1: "openai/gpt-4.1-nano",
         COMPACT_FALLBACK_2: "",
+        COMPACT_FALLBACK_3: "",
         OPENROUTER_API_KEY: "test-key",
         LLM_TIMEOUT_MS: 120000,
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+        DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+        NODE_ENV: "test",
     },
 }));
 
@@ -42,7 +52,6 @@ describe("getModelChain", () => {
         "suggest",
         "gap-detect",
         "autocomplete",
-        "rerank",
         "compact",
         "session-compact",
     ];
@@ -74,7 +83,7 @@ describe("getModelChain", () => {
 
     it("primary model is always first in array", () => {
         const chain = getModelChain("brain-dump");
-        expect(chain[0]).toBe("x-ai/grok-4.1-fast");
+        expect(chain[0]).toBe("x-ai/grok-4.3");
     });
 
     it('"compact" and "session-compact" use the same COMPACT_MODEL', () => {

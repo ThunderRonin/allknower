@@ -39,11 +39,12 @@ type FetchSpy = Mock<typeof globalThis.fetch>;
 function mockFetch(body: unknown, status = 200, contentType = "application/json"): FetchSpy {
     const responseText = contentType === "application/json" ? JSON.stringify(body) : String(body);
     // Use mockImplementation so each call gets a fresh Response (body can only be consumed once)
-    const spy = spyOn(globalThis, "fetch").mockImplementation(async () =>
-        new Response(responseText, {
-            status,
-            headers: { "Content-Type": contentType },
-        })
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+        (async () =>
+            new Response(responseText, {
+                status,
+                headers: { "Content-Type": contentType },
+            })) as unknown as typeof fetch
     );
     return spy as FetchSpy;
 }
@@ -382,10 +383,14 @@ describe("tagNote", () => {
 // ── createRelation ────────────────────────────────────────────────────────────
 
 describe("createRelation", () => {
+    function attributeCalls(spy: ReturnType<typeof mockFetch>) {
+        return spy.mock.calls.filter(([url]) => String(url).includes("/etapi/attributes"));
+    }
+
     it("creates forward relation with correct attribute name prefix", async () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         await createRelation("source-1", "target-1", "ally", { bidirectional: false });
-        const firstBody = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
+        const firstBody = JSON.parse((attributeCalls(spy)[0][1] as RequestInit).body as string);
         expect(firstBody.noteId).toBe("source-1");
         expect(firstBody.name).toMatch(/^rel/i);
         expect(firstBody.value).toBe("target-1");
@@ -395,7 +400,7 @@ describe("createRelation", () => {
     it('maps "ally" → attribute name containing "ally" (case-insensitive)', async () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         await createRelation("s", "t", "ally", { bidirectional: false });
-        const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((attributeCalls(spy)[0][1] as RequestInit).body as string);
         expect(body.name.toLowerCase()).toContain("ally");
         spy.mockRestore();
     });
@@ -403,7 +408,7 @@ describe("createRelation", () => {
     it('maps "enemy" → attribute name containing "enemy"', async () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         await createRelation("s", "t", "enemy", { bidirectional: false });
-        const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((attributeCalls(spy)[0][1] as RequestInit).body as string);
         expect(body.name.toLowerCase()).toContain("enemy");
         spy.mockRestore();
     });
@@ -412,7 +417,7 @@ describe("createRelation", () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         spy.mockClear();
         await createRelation("source-1", "target-1", "ally");
-        expect(spy.mock.calls.length).toBe(2);
+        expect(attributeCalls(spy).length).toBe(2);
         spy.mockRestore();
     });
 
@@ -420,7 +425,7 @@ describe("createRelation", () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         spy.mockClear();
         await createRelation("source-1", "target-1", "ally", { bidirectional: false });
-        expect(spy.mock.calls.length).toBe(1);
+        expect(attributeCalls(spy).length).toBe(1);
         spy.mockRestore();
     });
 
@@ -428,7 +433,7 @@ describe("createRelation", () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         spy.mockClear();
         await createRelation("s", "t", "ally", { bidirectional: false, description: "Fought together" });
-        expect(spy.mock.calls.length).toBe(2);
+        expect(attributeCalls(spy).length).toBe(2);
         spy.mockRestore();
     });
 
@@ -436,7 +441,7 @@ describe("createRelation", () => {
         const spy = mockFetch({ attributeId: "attr-1" });
         spy.mockClear();
         await createRelation("s", "t", "ally", { bidirectional: false });
-        expect(spy.mock.calls.length).toBe(1);
+        expect(attributeCalls(spy).length).toBe(1);
         spy.mockRestore();
     });
 });

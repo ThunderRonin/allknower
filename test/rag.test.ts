@@ -10,14 +10,29 @@ mock.module("../src/plugins/auth-guard.ts", () => ({
     requireAuth: requireAuthBypass
 }));
 
+mock.module("../src/integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" })), // NOSONAR — test mock
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
+}));
+
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     queryLore: mock(async (text: string, topK: number) => {
         lastTopK = topK;
         return [
             { noteId: "note-1", noteTitle: `Result for ${text}`, content: "Lore chunk", distance: 0.01 },
         ];
-    })
+    }),
 }));
 
 mock.module("../src/rag/indexer.ts", () => ({

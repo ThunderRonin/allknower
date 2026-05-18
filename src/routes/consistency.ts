@@ -1,39 +1,68 @@
 import Elysia, { t } from "elysia";
+import { rateLimit } from "elysia-rate-limit";
 import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { queryLore } from "../rag/lancedb.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import { env } from "../env.ts";
 import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
 import { ConsistencyResponseSchema } from "../pipeline/schemas/response-schemas.ts";
 import { rootLogger } from "../logger.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 
 /**
  * Semantic probes used to find the most relevant lore notes when no noteIds are
  * supplied. Multiple probes ensure broad coverage across the lore graph.
  */
-const CONSISTENCY_PROBES = [
-    "characters relationships history factions alliances",
-    "world rules laws magic systems geography cosmology",
-    "timeline events conflicts wars major incidents",
-    "contradictions anomalies unresolved plot threads",
-];
+const CONSISTENCY_QUERY =
+    "characters relationships factions timeline world rules contradictions unresolved plot threads";
 
-/** Max content chars to include per note in the LLM context (item 2.4 fix). */
-const MAX_NOTE_CHARS = 2000;
+/**
+ * Keep the consistency prompt bounded. The previous route could feed the LLM
+ * up to 32 note excerpts at 2000 chars each, which routinely pushed the live
+ * integration flow past the generic 120s timeout.
+ */
+const CONSISTENCY_TOP_K = 8;
+const MAX_NOTE_CHARS = 600;
+const CONSISTENCY_TIMEOUT_MS = 120_000;
+const CONSISTENCY_MAX_TOKENS = 2000;
 
-export const consistencyRoute = new Elysia({ prefix: "/consistency" })
-    .use(requireAuth)
+type ConsistencyRouteDeps = {
+    requireAuthImpl?: typeof requireAuth;
+};
+
+export function createConsistencyRoute({
+    requireAuthImpl = requireAuth,
+}: ConsistencyRouteDeps = {}) {
+    return new Elysia({ prefix: "/consistency" })
+        .use(requireAuthImpl)
+        .use(
+        rateLimit({
+            max: env.AI_RATE_LIMIT_MAX,
+            duration: env.AI_RATE_LIMIT_WINDOW_MS,
+            errorResponse: new Response(
+                JSON.stringify({
+                    error: "Rate limit exceeded for AI tools.",
+                    code: "RATE_LIMITED",
+                }),
+                { status: 429, headers: { "Content-Type": "application/json" } }
+            ),
+        })
+    )
     .post(
     "/check",
-    async ({ body }) => {
+    async ({ body, session }) => {
+        const credentials = await resolveAllCodexCredentials(session!.user.id);
         type NoteEntry = { noteId: string; title: string; content: string };
         let notes: NoteEntry[];
 
         if (body.noteIds?.length) {
             // Explicit mode: fetch requested notes and pass full content
             const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
-            const etapiNotes = await getAllCodexNotes(search);
+            const etapiNotes = await getAllCodexNotes(search, credentials);
 
             if (etapiNotes.length === 0) {
                 return { issues: [], summary: "No lore notes found to check." };
@@ -41,30 +70,21 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
 
             notes = await Promise.all(
                 etapiNotes.map(async (note) => {
-                    const content = await getNoteContent(note.noteId).catch(() => "");
+                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
                     const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
                     return { noteId: note.noteId, title: note.title, content: plain };
                 })
             );
         } else {
             // Semantic sampling mode: use RAG probes to surface the most
-            // consistency-relevant lore entries instead of truncating everything.
-            const seenIds = new Set<string>();
-            const sampled: NoteEntry[] = [];
-
-            for (const probe of CONSISTENCY_PROBES) {
-                const chunks = await queryLore(probe, 8);
-                for (const chunk of chunks) {
-                    if (!seenIds.has(chunk.noteId)) {
-                        seenIds.add(chunk.noteId);
-                        sampled.push({
-                            noteId: chunk.noteId,
-                            title: chunk.noteTitle,
-                            content: chunk.content,
-                        });
-                    }
-                }
-            }
+            // consistency-relevant lore entries, then compact to token budget.
+            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
+            const sampled = compacted.map((chunk) => ({
+                noteId: chunk.noteId,
+                title: chunk.noteTitle,
+                content: chunk.content,
+            }));
 
             if (sampled.length === 0) {
                 return { issues: [], summary: "No lore notes found to check." };
@@ -74,6 +94,8 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
         }
 
         const loreSummaries = notes.map(({ noteId, title, content }) => {
+            // Explicit-noteIds path still needs bounding; compacted RAG chunks
+            // are already within token budget so the slice is a no-op for them.
             const excerpt = content.slice(0, MAX_NOTE_CHARS);
             return `## ${title} (${noteId})\n${excerpt}`;
         });
@@ -83,6 +105,8 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
 
         const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
             jsonSchema: CONSISTENCY_JSON_SCHEMA,
+            timeoutMs: CONSISTENCY_TIMEOUT_MS,
+            maxTokens: CONSISTENCY_MAX_TOKENS,
         });
 
         let result: unknown;
@@ -116,4 +140,119 @@ export const consistencyRoute = new Elysia({ prefix: "/consistency" })
             tags: ["Intelligence"],
         },
     }
-);
+)
+    .post(
+        "/check/stream",
+        async ({ body, session, set }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    try {
+                        send("status", { stage: "analyze", message: "Analyzing notes..." });
+
+                        type NoteEntry = { noteId: string; title: string; content: string };
+                        let notes: NoteEntry[];
+
+                        if (body.noteIds?.length) {
+                            const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
+                            const etapiNotes = await getAllCodexNotes(search, credentials);
+
+                            if (etapiNotes.length === 0) {
+                                send("result", { issues: [], summary: "No lore notes found to check." });
+                                send("done", {});
+                                controller.close();
+                                return;
+                            }
+
+                            notes = await Promise.all(
+                                etapiNotes.map(async (note) => {
+                                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
+                                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); // NOSONAR — [^>]+ is non-backtracking
+                                    return { noteId: note.noteId, title: note.title, content: plain };
+                                })
+                            );
+                        } else {
+                            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+                            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
+                            const sampled = compacted.map((chunk) => ({
+                                noteId: chunk.noteId,
+                                title: chunk.noteTitle,
+                                content: chunk.content,
+                            }));
+
+                            if (sampled.length === 0) {
+                                send("result", { issues: [], summary: "No lore notes found to check." });
+                                send("done", {});
+                                controller.close();
+                                return;
+                            }
+
+                            notes = sampled;
+                        }
+
+                        const loreSummaries = notes.map(({ noteId, title, content }) => {
+                            const excerpt = content.slice(0, MAX_NOTE_CHARS);
+                            return `## ${title} (${noteId})\n${excerpt}`;
+                        });
+
+                        const context = `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
+                        const user = `Check these lore entries for consistency issues.`;
+
+                        const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
+                            jsonSchema: CONSISTENCY_JSON_SCHEMA,
+                            timeoutMs: CONSISTENCY_TIMEOUT_MS,
+                            maxTokens: CONSISTENCY_MAX_TOKENS,
+                        });
+
+                        let result: unknown;
+                        try {
+                            const parsed = JSON.parse(raw);
+                            const validated = ConsistencyResponseSchema.safeParse(parsed);
+                            if (validated.success) {
+                                result = validated.data;
+                            } else {
+                                rootLogger.warn("Consistency stream response failed validation", {
+                                    errors: validated.error.issues,
+                                });
+                                result = { issues: [], summary: "LLM response failed validation." };
+                            }
+                        } catch {
+                            result = { issues: [], summary: "Failed to parse consistency check response." };
+                        }
+
+                        send("result", result);
+                        send("done", {});
+                    } catch (e) {
+                        send("error", { error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                    }
+                },
+            });
+        },
+        {
+            body: t.Object({
+                noteIds: t.Optional(
+                    t.Array(t.String(), { description: "Specific note IDs to check. Omit to use semantic sampling across all lore." })
+                ),
+            }),
+            detail: {
+                summary: "Run consistency check (streaming)",
+                description: "Streaming variant with status events for progress.",
+                tags: ["Intelligence"],
+            },
+        }
+    );
+}
+
+export const consistencyRoute = createConsistencyRoute();

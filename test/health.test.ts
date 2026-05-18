@@ -11,6 +11,7 @@ mock.module("../src/etapi/client.ts", () => ({
     createAttribute: mock(async () => ({})),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => []),
     getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async (noteId: string) => `<p>${noteId} content</p>`),
@@ -18,10 +19,18 @@ mock.module("../src/etapi/client.ts", () => ({
     setNoteTemplate: mock(async () => {}),
     tagNote: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
-    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk }))
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    queryLore: mock(async () => []),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
+    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk })),
 }));
 
 mock.module("../src/db/client.ts", () => ({
@@ -34,6 +43,15 @@ mock.module("../src/db/client.ts", () => ({
             return [{ ok: 1 }];
         })
     }
+}));
+
+mock.module("../src/bootstrap/index.ts", () => ({
+    getBootstrapStatus: mock(() => ({
+        ran: true,
+        userReady: true,
+        etapiReady: true,
+    })),
+    runBootstrap: mock(async () => {}),
 }));
 
 const { healthRoute } = await import("../src/routes/health.ts");
@@ -57,6 +75,12 @@ describe("GET /health", () => {
                 allcodex: { ok: true },
                 lancedb: { ok: true },
                 database: { ok: true },
+                bootstrap: {
+                    ok: true,
+                    ran: true,
+                    userReady: true,
+                    etapiReady: true,
+                },
             },
         });
     });

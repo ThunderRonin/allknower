@@ -1,4 +1,5 @@
 import { mock } from "bun:test";
+import { requireAuthBypass } from "../../test/helpers/auth.ts";
 
 let noteIdCounter = 0;
 const mockCreateNote = mock(async (params: any) => ({
@@ -23,10 +24,16 @@ mock.module("../etapi/client.ts", () => ({
     setNoteTemplate: mockSetNoteTemplate,
     tagNote: mockTagNote,
     getAllCodexNotes: mockGetAllCodexNotes,
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
     createAttribute: mock(async () => ({ attributeId: "a" })),
+    createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async () => ({})),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../pipeline/azgaar.ts", () => ({
@@ -46,12 +53,22 @@ mock.module("../db/client.ts", () => ({
     default: { ragIndexMeta: { upsert: mock(async () => ({})), findMany: mock(async () => []) } },
 }));
 
+mock.module("../integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({ baseUrl: "http://test", token: "test-token" })), // NOSONAR — test mock
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
+}));
+
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
-import { importRoute } from "./import.ts";
+import { createImportRoute } from "./import.ts";
 import { requestJson } from "../../test/helpers/http.ts";
 
-const app = new Elysia().use(importRoute);
+const app = new Elysia().use(createImportRoute({ requireAuthImpl: requireAuthBypass }));
 
 beforeEach(() => {
     noteIdCounter = 0;
@@ -103,7 +120,7 @@ describe("POST /import/system-pack", () => {
             method: "POST",
             json: { notes: [{ name: "Dragon" }] },
         });
-        const call = mockSetNoteTemplate.mock.calls[0];
+        const call = mockSetNoteTemplate.mock.calls[0] as any[];
         expect(call[1]).toBe("_template_statblock");
     });
 
@@ -112,7 +129,7 @@ describe("POST /import/system-pack", () => {
             method: "POST",
             json: { notes: [{ name: "Troll" }] },
         });
-        const tags = mockTagNote.mock.calls.map((c) => `${c[1]}:${c[2]}`);
+        const tags = mockTagNote.mock.calls.map((c) => `${(c as any[])[1]}:${(c as any[])[2]}`);
         expect(tags).toContain("crName:Troll");
         expect(tags).toContain("statblock:");
         expect(tags).toContain("importSource:system-pack");
@@ -123,7 +140,7 @@ describe("POST /import/system-pack", () => {
             method: "POST",
             json: { notes: [{ name: "Zombie", cr: "1/4" }] },
         });
-        const crTag = mockTagNote.mock.calls.find((c) => c[1] === "challengeRating");
+        const crTag = mockTagNote.mock.calls.find((c) => (c as any[])[1] === "challengeRating") as any[] | undefined;
         expect(crTag).toBeDefined();
         expect(crTag![2]).toBe("1/4");
     });
@@ -133,8 +150,8 @@ describe("POST /import/system-pack", () => {
             method: "POST",
             json: { notes: [{ name: "Skeleton", cr: null, ac: "" }] },
         });
-        const crTag = mockTagNote.mock.calls.find((c) => c[1] === "challengeRating");
-        const acTag = mockTagNote.mock.calls.find((c) => c[1] === "ac");
+        const crTag = mockTagNote.mock.calls.find((c) => (c as any[])[1] === "challengeRating");
+        const acTag = mockTagNote.mock.calls.find((c) => (c as any[])[1] === "ac");
         expect(crTag).toBeUndefined();
         expect(acTag).toBeUndefined();
     });
@@ -276,7 +293,7 @@ describe("POST /import/azgaar", () => {
             method: "POST",
             json: { mapData: validAzgaarData },
         });
-        const opts = mockImportAzgaarMap.mock.calls[0][1] as any;
+        const opts = (mockImportAzgaarMap.mock.calls[0] as any[])[1];
         expect(opts.parentNoteId).toBe("root");
     });
 
@@ -285,7 +302,7 @@ describe("POST /import/azgaar", () => {
             method: "POST",
             json: { mapData: validAzgaarData },
         });
-        const opts = mockImportAzgaarMap.mock.calls[0][1] as any;
+        const opts = (mockImportAzgaarMap.mock.calls[0] as any[])[1];
         expect(opts.importStates).toBe(true);
         expect(opts.importBurgs).toBe(true);
         expect(opts.importReligions).toBe(true);
@@ -298,12 +315,12 @@ describe("POST /import/azgaar", () => {
             method: "POST",
             json: { mapData: validAzgaarData },
         });
-        const opts = mockImportAzgaarMap.mock.calls[0][1] as any;
+        const opts = (mockImportAzgaarMap.mock.calls[0] as any[])[1];
         expect(opts.skipDuplicates).toBe(true);
     });
 
     it("returns importAzgaarMap result on success", async () => {
-        mockImportAzgaarMap.mockResolvedValue({
+        (mockImportAzgaarMap.mockResolvedValue as (v: any) => any)({
             mapName: "Valdoria",
             states: { created: [{ noteId: "n1", name: "Valorheim" }], skipped: [], errors: [] },
             burgs: { created: [], skipped: [], errors: [] },

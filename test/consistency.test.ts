@@ -30,6 +30,7 @@ mock.module("../src/etapi/client.ts", () => ({
     createAttribute: mock(async () => ({})),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => {
         if (returnNoNotes) {
             return [];
@@ -46,9 +47,16 @@ mock.module("../src/etapi/client.ts", () => ({
     setNoteTemplate: mock(async () => {}),
     tagNote: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
     queryLore: mock(async () => {
         if (returnNoNotes) {
@@ -58,7 +66,20 @@ mock.module("../src/rag/lancedb.ts", () => ({
         return [
             { noteId: "note-1", noteTitle: "Archivist", content: "Lore chunk", distance: 0.1 },
         ];
-    })
+    }),
+}));
+
+mock.module("../src/integrations/allcodex.ts", () => ({
+    resolveAllCodexCredentials: mock(async () => ({
+        baseUrl: "http://localhost:8080",
+        token: "mock-etapi-token",
+    })),
+    connectAllCodexIntegration: mock(async () => ({})),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({
@@ -81,7 +102,8 @@ mock.module("../src/pipeline/prompt.ts", () => ({
                 summary: "Found a contradiction",
             })
         };
-    })
+    }),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 const { consistencyRoute } = await import("../src/routes/consistency.ts");

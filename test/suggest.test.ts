@@ -40,16 +40,39 @@ mock.module("../src/pipeline/relations.ts", () => ({
             description: "Shared oath",
         }];
     }),
-    applyRelations: mock(async (sourceNoteId: string, relations: unknown[]) => ({
-        ok: true,
-        sourceNoteId,
-        applied: relations.length,
+    applyRelations: mock(async (sourceNoteId: string, relations: Array<{ targetNoteId: string; relationshipType: string }>) => ({
+        applied: relations.map((relation) => ({
+            sourceNoteId,
+            targetNoteId: relation.targetNoteId,
+            relationshipType: relation.relationshipType,
+            relationName: "relAlly",
+        })),
+        skipped: [],
+        failed: [],
     })),
 }));
 
+mock.module("../src/integrations/allcodex.ts", () => ({
+    connectAllCodexIntegration: mock(async () => ({ connected: true })),
+    deleteAllCodexIntegration: mock(async () => {}),
+    getAllCodexIntegrationStatus: mock(async () => ({ connected: true })),
+    resolveAllCodexCredentials: mock(async () => ({
+        baseUrl: "http://localhost:8080",
+        token: "test-etapi-token",
+    })),
+    IntegrationNotConnectedError: class extends Error {
+        constructor() { super("Not connected"); this.name = "IntegrationNotConnectedError"; }
+    },
+}));
+
 mock.module("../src/rag/lancedb.ts", () => ({
+    _resetConnection: mock(() => {}),
+    getTable: mock(async () => ({} as never)),
+    upsertNoteChunks: mock(async () => {}),
+    deleteNoteChunks: mock(async () => {}),
+    chunkText: mock(() => [] as string[]),
     checkLanceDbHealth: mock(async () => ({ ok: true })),
-    queryLore: mock(async () => autocompleteSemanticResults)
+    queryLore: mock(async () => autocompleteSemanticResults),
 }));
 
 mock.module("../src/etapi/client.ts", () => ({
@@ -57,6 +80,7 @@ mock.module("../src/etapi/client.ts", () => ({
     createAttribute: mock(async () => ({})),
     createNote: mock(async () => ({ note: { noteId: "new-note-1" } })),
     createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     getAllCodexNotes: mock(async () => [
         { noteId: "1", title: "Aria", attributes: [{ name: "loreType", value: "character", type: "label" }] },
         { noteId: "2", title: "Citadel", attributes: [{ name: "loreType", value: "location", type: "label" }] },
@@ -67,6 +91,8 @@ mock.module("../src/etapi/client.ts", () => ({
     setNoteTemplate: mock(async () => {}),
     tagNote: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({
@@ -97,7 +123,8 @@ mock.module("../src/pipeline/prompt.ts", () => ({
                 suggestions: [{ title: "Aether Keep" }],
             })
         };
-    })
+    }),
+    callLLMStream: mock(async function* () { yield { type: "done", raw: "{}", tokensUsed: 0, model: "test", latencyMs: 0 }; }),
 }));
 
 mock.module("../src/db/client.ts", () => ({
@@ -195,6 +222,19 @@ describe("Suggest routes", () => {
         expect(typeof body.totalNotes).toBe("number");
     }, 30000);
 
+    it("POST /suggest/gaps returns gaps, type counts, and total notes", async () => {
+        const { status, json } = await requestJson(app, "/suggest/gaps", {
+            method: "POST",
+            json: {},
+        });
+        const body = json as { gaps: unknown[]; typeCounts: Record<string, number>; totalNotes: number };
+
+        expect(status).toBe(200);
+        expect(Array.isArray(body.gaps)).toBe(true);
+        expect(typeof body.typeCounts).toBe("object");
+        expect(typeof body.totalNotes).toBe("number");
+    }, 30000);
+
     it("POST /suggest/relationships/apply accepts a valid payload", async () => {
         const { status, json } = await requestJson(app, "/suggest/relationships/apply", {
             method: "POST",
@@ -210,7 +250,16 @@ describe("Suggest routes", () => {
         });
 
         expect(status).toBe(200);
-        expect(json).toEqual({ ok: true, sourceNoteId: "source-1", applied: 1 });
+        expect(json).toEqual({
+            applied: [{
+                sourceNoteId: "source-1",
+                targetNoteId: "target-1",
+                relationshipType: "ally",
+                relationName: "relAlly",
+            }],
+            skipped: [],
+            failed: [],
+        });
     });
 
     it("POST /suggest/relationships/apply rejects an invalid payload", async () => {

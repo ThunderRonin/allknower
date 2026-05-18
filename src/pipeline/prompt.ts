@@ -1,10 +1,7 @@
 import type { RagChunk } from "../types/lore.ts";
-import { callWithFallback, type TaskType } from "./model-router.ts";
-import { countTokens } from "../utils/tokens.ts";
-import { deduplicateChunks } from "../rag/chunk-dedup.ts";
-import { compactChunks } from "../rag/chunk-compactor.ts";
-import { env } from "../env.ts";
-import { rootLogger } from "../logger.ts";
+import { callWithFallback, callModelStream, type TaskType } from "./model-router.ts";
+import type { StreamChunk } from "./stream-types.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
 
 /**
  * Prompt builder and LLM caller for AllKnower pipelines.
@@ -101,14 +98,66 @@ Attributes: domains, alignment, rank, symbol, worshippers, allies, enemies, secr
 Faiths, churches, cults, monastic orders, spiritual practices — organized belief systems around deities or philosophies.
 Attributes: deity, pantheon, tenets, clergy, holyDays, headquarters, followers, secrets
 
+### session
+Play sessions, game recaps — records of what happened at the table.
+Attributes: sessionDate, players, sessionStatus, recap, hooks
+
+### quest
+Active or completed quests, missions, objectives the party is tracking.
+Attributes: questStatus (active|completed|failed|deferred|unknown), questGiver, reward, location, objectives, hooks, secrets
+
+### scene
+Specific narrative scenes — encounters, conversations, set pieces.
+Attributes: location, participants, outcome, gmNotes
+
+## Content Formatting — Write Like a Wiki
+The "content" field is rich HTML rendered in a wiki-style grimoire. Write it like a fandom wiki article, NOT a single paragraph. Structure rich, facts strict — use formatting to ORGANIZE what's given, never fabricate details.
+
+### Required structure
+- Open with a <blockquote> epigraph if the source text contains a memorable quote, motto, or saying
+- Use <h2> for major sections (Overview, History, Relationships, Appearance, etc.)
+- Use <h3> for subsections within those
+- Separate major sections with <hr> dividers
+
+### Formatting tools — use liberally
+- <table> for structured data (stats, timelines, equipment, members lists, comparisons)
+- <ul>/<ol> for lists (allies, notable events, abilities, inventory)
+- <blockquote> for in-world quotes, proclamations, inscriptions
+- <strong> for key names and terms on first mention
+- <mark> for dramatic highlights (bounties, titles, critical facts)
+- <em> for in-world terms, ship names, titles of works
+- <details><summary>Title</summary>...content...</details> for collapsible supplementary data
+
+### GM-only content
+Wrap GM-secret narrative sections in <div class="gm-only">. Use this for:
+- Hidden agendas, secret allegiances, plot twists
+- Mechanical weaknesses the party could exploit
+- Plot hooks and encounter suggestions
+Put a short summary in the "secrets" attribute; put the full narrative in <div class="gm-only"> blocks.
+
+### Example content structure
+<blockquote>"Quote from or about the entity."<br><em>— Attribution</em></blockquote>
+<h2>Overview</h2>
+<p>Introductory paragraph with <strong>key terms</strong> bolded.</p>
+<hr>
+<h2>History</h2>
+<h3>Early Years</h3>
+<p>Narrative prose about origins...</p>
+<h3>Major Events</h3>
+<table><thead><tr><th>Date</th><th>Event</th><th>Outcome</th></tr></thead><tbody><tr><td>...</td><td>...</td><td>...</td></tr></tbody></table>
+<hr>
+<h2>Relationships</h2>
+<ul><li><strong>Name</strong> — relationship description</li></ul>
+<div class="gm-only"><h2>GM Notes</h2><p>Secret information...</p></div>
+
 ## Output Format
 Return a JSON object with this exact shape:
 {
   "entities": [
     {
-      "type": "<one of the 18 types above>",
+      "type": "<one of the 21 types above>",
       "title": "Entity name — use the canonical in-world name",
-      "content": "<p>HTML narrative description. This is the note body the user will read — make it flow naturally as worldbuilding prose, not a data dump.</p>",
+      "content": "<wiki-style HTML as described above>",
       "tags": ["tag1", "tag2"],
       "attributes": { /* type-specific fields only */ },
       "action": "create" | "update",
@@ -119,12 +168,12 @@ Return a JSON object with this exact shape:
 }
 
 ## Constraints
-- NEVER invent details not present in the raw text. If the text says "a powerful sword," do not name it or assign stats.
+- NEVER invent details not present in the raw text. If the text says "a powerful sword," do not name it or assign stats. Structure rich, facts strict.
 - NEVER contradict existing lore shown in the context. If context says a character is dead, do not mark them alive.
 - If the raw text mentions an entity that already exists in context, set action to "update" and include the existingNoteId. Merge new details with existing ones.
 - If you are unsure about a detail, omit that field entirely rather than guessing.
-- Secrets (GM-only info, hidden plot hooks, twists) go in the "secrets" attribute, NOT in the main content.
-- The "content" field is narrative HTML the user reads — write it as worldbuilding prose, not a bulleted attribute list.
+- Short secret summaries go in the "secrets" attribute. Detailed GM narrative goes in <div class="gm-only"> blocks inside content.
+- The content field is a wiki article — use headers, tables, lists, quotes, and dividers to organize it. Never output a single bare paragraph.
 - When a brain dump mentions multiple distinct entities, split them out. One entity per concept.
 - Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
 - If you run out of space, prioritize closing the JSON structure correctly over adding more entities. NEVER leave a JSON string or object truncated.`;
@@ -141,44 +190,8 @@ export async function buildBrainDumpPrompt(
     rawText: string,
     ragContext: RagChunk[]
 ): Promise<{ system: string; context: string; user: string; admittedChunks: RagChunk[] }> {
-    // Tier 1.5: deduplicate near-identical chunks
-    const dedupedContext = deduplicateChunks(ragContext);
-
-    // Tier 1: budget enforcement — admit chunks in relevance order until budget full
-    const MAX_RAG_TOKENS = env.RAG_CONTEXT_MAX_TOKENS;
-    let budgetUsed = 0;
-    const admittedChunks: RagChunk[] = [];
-
-    for (const chunk of dedupedContext) {
-        const chunkTokens = countTokens(chunk.content);
-        if (budgetUsed + chunkTokens <= MAX_RAG_TOKENS) {
-            admittedChunks.push(chunk);
-            budgetUsed += chunkTokens;
-        } else if (budgetUsed >= MAX_RAG_TOKENS) {
-            break; // hard stop once full
-        }
-        // else: skip this oversized chunk but continue looking for smaller ones
-    }
-
-    rootLogger.info("RAG budget summary", {
-        totalChunks: ragContext.length,
-        afterDedup: dedupedContext.length,
-        admitted: admittedChunks.length,
-        budgetUsed,
-        MAX_RAG_TOKENS,
-    });
-
-    // Tier 2: summarize oversized chunks (parallel, failure-isolated, concurrency-limited)
-    const compactedChunks = await compactChunks(admittedChunks);
-
-    // Recalculate budget after compaction — compacted chunks free up space
-    const postCompactBudget = compactedChunks.reduce(
-        (sum, c) => sum + countTokens(c.content), 0
-    );
-    const freed = budgetUsed - postCompactBudget;
-    if (freed > 0) {
-        rootLogger.info("Tier 2 freed tokens", { freed, postCompactBudget });
-    }
+    // Tiers 1.5 → 1 → 2: dedup, budget enforcement, optional summarization
+    const compactedChunks = await compactRagContext(ragContext, { task: "brain-dump" });
 
     const contextBlock =
         compactedChunks.length > 0
@@ -210,6 +223,11 @@ export async function callLLM(
     context?: string,
     options?: {
         jsonSchema?: { name: string; schema: Record<string, unknown> };
+        maxTokens?: number;
+        timeoutMs?: number;
+        temperature?: number;
+        reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+        modelOverride?: string;
     }
 ): Promise<{ raw: string; tokensUsed: number; model: string; latencyMs: number }> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string; cache_control?: { type: string } }> = [
@@ -238,15 +256,54 @@ export async function callLLM(
         : { type: "json_object" as const };
 
     return callWithFallback(task, messages, {
-        temperature: 0.3, // low temp for more deterministic output
-        maxTokens: 30000, // matched to primary model (Grok) limits to avoid provider-side truncation
+        temperature: options?.temperature ?? 0.3,
+        maxTokens: options?.maxTokens ?? 30000,
+        timeoutMs: options?.timeoutMs,
         responseFormat,
+        reasoning: options?.reasoning,
+        modelOverride: options?.modelOverride,
     });
 }
 
 /**
- * @deprecated Use callLLM with task="brain-dump" instead.
- * Kept for backwards compatibility with existing callers.
+ * Streaming variant of callLLM. Yields StreamChunk items for SSE/streaming routes.
+ *
+ * Key differences from callLLM:
+ *   - Returns AsyncGenerator<StreamChunk> instead of Promise<LLMResult>
+ *   - No cache_control on messages (Responses API handles caching differently)
+ *   - No timeoutMs option (streaming uses inactivity-based timeouts in callModelStream)
+ *   - Uses yield* to delegate to callModelStream
  */
-export const callClaude = (system: string, user: string) =>
-    callLLM(system, user, "brain-dump");
+export async function* callLLMStream(
+    system: string,
+    user: string,
+    task: TaskType = "brain-dump",
+    context?: string,
+    options?: {
+        jsonSchema?: { name: string; schema: Record<string, unknown> };
+        maxTokens?: number;
+        temperature?: number;
+        reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
+        modelOverride?: string;
+    }
+): AsyncGenerator<StreamChunk> {
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: system },
+    ];
+    if (context) {
+        messages.push({ role: "user", content: context });
+    }
+    messages.push({ role: "user", content: user });
+
+    const responseFormat = options?.jsonSchema
+        ? { type: "json_schema" as const, jsonSchema: { name: options.jsonSchema.name, schema: options.jsonSchema.schema, strict: true } }
+        : { type: "json_object" as const };
+
+    yield* callModelStream(task, messages, {
+        temperature: options?.temperature ?? 0.3,
+        maxTokens: options?.maxTokens ?? 30000,
+        responseFormat,
+        reasoning: options?.reasoning,
+        modelOverride: options?.modelOverride,
+    });
+}

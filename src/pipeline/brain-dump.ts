@@ -1,5 +1,6 @@
 import { queryLore } from "../rag/lancedb.ts";
-import { buildBrainDumpPrompt, callLLM } from "./prompt.ts";
+import { buildBrainDumpPrompt, callLLM, callLLMStream } from "./prompt.ts";
+import type { StreamChunk } from "./stream-types.ts";
 import { parseBrainDumpResponse } from "./parser.ts";
 import {
     createNote,
@@ -10,6 +11,7 @@ import {
     createAttribute,
     getAllCodexNotes,
     probeAllCodex,
+    type EtapiCredentials,
 } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
@@ -23,15 +25,12 @@ const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 type DuplicateMatch = { noteId: string; title: string; score: number };
 type DuplicateInfo = { proposedTitle: string; proposedType: string; matches: DuplicateMatch[] };
 
-async function findDuplicates(title: string, type: string): Promise<DuplicateMatch[]> {
+async function findDuplicates(title: string, _type: string): Promise<DuplicateMatch[]> {
     try {
         const results = await queryLore(title, 5);
         return results
-            .filter((r) => (r as unknown as { score: number }).score > DUPLICATE_SIMILARITY_THRESHOLD)
-            .map((r: unknown) => {
-                const entry = r as { noteId: string; title: string; score: number };
-                return { noteId: entry.noteId, title: entry.title, score: entry.score };
-            });
+            .filter((r) => r.score > DUPLICATE_SIMILARITY_THRESHOLD)
+            .map((r) => ({ noteId: r.noteId, title: r.noteTitle, score: r.score }));
     } catch {
         return [];
     }
@@ -69,13 +68,13 @@ export interface BrainDumpInboxResult {
 export async function runBrainDump(
     rawText: string,
     mode: "auto" | "review" | "inbox" = "auto",
-    options: { autoRelate?: boolean } = {}
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string; model?: string } = {}
 ): Promise<
     | (BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> })
     | BrainDumpReviewResult
     | BrainDumpInboxResult
 > {
-    const { autoRelate = true } = options;
+    const { autoRelate = true, credentials, userId, model } = options;
 
     // Inbox mode — client-side capture, no LLM call needed
     if (mode === "inbox") {
@@ -84,7 +83,7 @@ export async function runBrainDump(
 
     // Preflight: verify AllCodex is reachable and the ETAPI token is valid before
     // spending LLM tokens on a run that will fail to write anything.
-    const allcodexProbe = await probeAllCodex();
+    const allcodexProbe = await probeAllCodex(credentials);
     if (!allcodexProbe.ok) {
         throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
     }
@@ -97,7 +96,7 @@ export async function runBrainDump(
     // Only use cache for auto mode (review always re-runs for fresh proposals)
     if (mode === "auto") {
         const existing = await prisma.brainDumpHistory.findFirst({
-            where: { rawTextHash },
+            where: { rawTextHash, userId: userId ?? null },
             orderBy: { createdAt: "desc" },
             select: { id: true, notesCreated: true, notesUpdated: true, parsedJson: true, model: true },
         });
@@ -131,7 +130,7 @@ export async function runBrainDump(
     // This grounds creature/NPC generation against existing homebrew statblocks automatically.
     let statblockContext: typeof ragContext = [];
     try {
-        const statblockNotes = await getAllCodexNotes("#statblock");
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
         const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
         if (statblockNoteIds.length > 0) {
             statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
@@ -149,7 +148,10 @@ export async function runBrainDump(
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
-    const { raw, tokensUsed, model } = await callLLM(system, user, "brain-dump", context);
+    const { raw, tokensUsed, model: usedModel } = await callLLM(system, user, "brain-dump", context, {
+        reasoning: { effort: "low" },
+        modelOverride: model,
+    });
 
 
     // Step 4: Parse response
@@ -185,7 +187,7 @@ export async function runBrainDump(
     }
 
     // Auto mode — write to AllCodex
-    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, model, autoRelate);
+    return await _writeEntitiesToAllCodex(rawText, rawTextHash, entities, summary, tokensUsed, usedModel, autoRelate, credentials, userId);
 }
 
 /**
@@ -194,9 +196,11 @@ export async function runBrainDump(
  */
 export async function commitReviewedEntities(
     rawText: string,
-    approvedEntities: ProposedEntity[]
+    approvedEntities: ProposedEntity[],
+    credentials?: EtapiCredentials,
+    userId?: string
 ): Promise<BrainDumpResult & { reindexIds: string[] }> {
-    const allcodexProbe = await probeAllCodex();
+    const allcodexProbe = await probeAllCodex(credentials);
     if (!allcodexProbe.ok) {
         throw new Error(`AllCodex is not connected: ${allcodexProbe.error}`);
     }
@@ -216,7 +220,110 @@ export async function commitReviewedEntities(
         tags: e.tags,
     }));
 
-    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true);
+    return _writeEntitiesToAllCodex(rawText, rawTextHash, entities, "Committed from review", 0, "review-commit", true, credentials, userId);
+}
+
+export async function* runBrainDumpStream(
+    rawText: string,
+    options: { autoRelate?: boolean; credentials?: EtapiCredentials; userId?: string; model?: string } = {}
+): AsyncGenerator<StreamChunk> {
+    const { autoRelate = true, credentials, userId, model } = options;
+
+    // Preflight
+    yield { type: "status", stage: "preflight", message: "Checking AllCodex connection..." };
+    const allcodexProbe = await probeAllCodex(credentials);
+    if (!allcodexProbe.ok) {
+        yield { type: "error", error: `AllCodex is not connected: ${allcodexProbe.error}` };
+        return;
+    }
+
+    // Idempotency check
+    const rawTextHash = Buffer.from(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawText))
+    ).toString("hex");
+
+    const existing = await prisma.brainDumpHistory.findFirst({
+        where: { rawTextHash, userId: userId ?? null },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, parsedJson: true },
+    });
+    if (existing) {
+        const cached = existing.parsedJson as { summary: string };
+        yield { type: "status", stage: "cache", message: `Found cached result: ${cached.summary}` };
+        yield { type: "done", raw: JSON.stringify(existing.parsedJson), tokensUsed: 0, model: "cache", latencyMs: 0 };
+        return;
+    }
+
+    // RAG retrieval
+    yield { type: "status", stage: "rag", message: "Querying existing lore for context..." };
+    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
+    try {
+        ragContext = await queryLore(rawText, 10);
+    } catch (e: unknown) {
+        rootLogger.warn("General RAG retrieval failed, continuing without context", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    let statblockContext: typeof ragContext = [];
+    try {
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
+        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
+        if (statblockNoteIds.length > 0) {
+            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
+        }
+    } catch (e: unknown) {
+        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    const mergedContext = [...statblockContext, ...ragContext.filter(
+        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
+    )].slice(0, 12);
+
+    yield { type: "status", stage: "rag", message: `Found ${mergedContext.length} context chunks` };
+
+    // Build prompt + stream LLM
+    yield { type: "status", stage: "llm", message: "Sending to LLM..." };
+    const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
+
+    let rawResponse = "";
+    let llmMeta = { tokensUsed: 0, model: "", latencyMs: 0 };
+
+    for await (const chunk of callLLMStream(system, user, "brain-dump", context, {
+        reasoning: { effort: "low" },
+        modelOverride: model,
+    })) {
+        if (chunk.type === "token") {
+            rawResponse += chunk.content;
+            yield chunk;
+        } else if (chunk.type === "reasoning") {
+            yield chunk;
+        } else if (chunk.type === "done") {
+            rawResponse = chunk.raw;
+            llmMeta = { tokensUsed: chunk.tokensUsed, model: chunk.model, latencyMs: chunk.latencyMs };
+        } else if (chunk.type === "error") {
+            yield chunk;
+            return;
+        }
+    }
+
+    // Parse
+    yield { type: "status", stage: "parse", message: "Parsing entities..." };
+    const { entities, summary } = parseBrainDumpResponse(rawResponse);
+    yield { type: "status", stage: "parse", message: `Found ${entities.length} entities` };
+
+    // Write to AllCodex
+    yield { type: "status", stage: "write", message: `Writing ${entities.length} entities to AllCodex...` };
+    const writeResult = await _writeEntitiesToAllCodex(
+        rawText, rawTextHash, entities, summary,
+        llmMeta.tokensUsed, llmMeta.model, autoRelate, credentials, userId
+    );
+
+    yield { type: "status", stage: "complete", message: `Created ${writeResult.created.length}, updated ${writeResult.updated.length}, skipped ${writeResult.skipped.length}` };
+
+    yield { type: "done", raw: JSON.stringify(writeResult), tokensUsed: llmMeta.tokensUsed, model: llmMeta.model, latencyMs: llmMeta.latencyMs };
 }
 
 async function _writeEntitiesToAllCodex(
@@ -234,7 +341,9 @@ async function _writeEntitiesToAllCodex(
     summary: string,
     tokensUsed: number,
     model: string,
-    autoRelate: boolean
+    autoRelate: boolean,
+    credentials?: EtapiCredentials,
+    userId?: string
 ): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
     const created: BrainDumpResult["created"] = [];
     const updated: BrainDumpResult["updated"] = [];
@@ -269,9 +378,9 @@ async function _writeEntitiesToAllCodex(
             }
 
             if (entity.action === "update" && entity.existingNoteId) {
-                await updateNote(entity.existingNoteId, { title: entity.title });
+                await updateNote(entity.existingNoteId, { title: entity.title }, credentials);
                 if (entity.content) {
-                    await setNoteContent(entity.existingNoteId, entity.content);
+                    await setNoteContent(entity.existingNoteId, entity.content, credentials);
                 }
                 updated.push({ noteId: entity.existingNoteId, title: entity.title, type: entity.type as LoreEntityType });
                 reindexIds.push(entity.existingNoteId);
@@ -281,11 +390,11 @@ async function _writeEntitiesToAllCodex(
                     title: entity.title,
                     type: "text",
                     content: entity.content ?? "",
-                });
+                }, credentials);
 
                 const templateId = TEMPLATE_ID_MAP[entity.type as LoreEntityType];
                 try {
-                    await setNoteTemplate(note.noteId, templateId);
+                    await setNoteTemplate(note.noteId, templateId, credentials);
                 } catch {
                     rootLogger.warn("Template not found — skipping template link", {
                         templateId,
@@ -293,20 +402,20 @@ async function _writeEntitiesToAllCodex(
                     });
                 }
 
-                await tagNote(note.noteId, "lore");
-                await tagNote(note.noteId, "loreType", entity.type);
+                await tagNote(note.noteId, "lore", "", credentials);
+                await tagNote(note.noteId, "loreType", entity.type, credentials);
 
                 if (entity.attributes && typeof entity.attributes === "object") {
                     for (const [name, value] of Object.entries(entity.attributes)) {
                         if (value !== undefined && value !== null && value !== "") {
                             const strValue = Array.isArray(value) ? value.join(", ") : String(value);
-                            await createAttribute({ noteId: note.noteId, type: "label", name, value: strValue });
+                            await createAttribute({ noteId: note.noteId, type: "label", name, value: strValue }, credentials);
                         }
                     }
                 }
 
                 for (const tag of entity.tags ?? []) {
-                    await tagNote(note.noteId, tag);
+                    await tagNote(note.noteId, tag, "", credentials);
                 }
 
                 created.push({ noteId: note.noteId, title: entity.title, type: entity.type as LoreEntityType });
@@ -326,10 +435,10 @@ async function _writeEntitiesToAllCodex(
             try {
                 const entity = entities.find(e => e.title === note.title);
                 const content = entity?.content ?? note.title;
-                const suggestions = await suggestRelationsForNote(note.noteId, content);
+                const suggestions = await suggestRelationsForNote(note.noteId, content, credentials);
                 const highConfidence = suggestions.filter(s => s.confidence === "high");
                 if (highConfidence.length > 0) {
-                    const { applied, failed } = await applyRelations(note.noteId, highConfidence);
+                    const { applied, failed } = await applyRelations(note.noteId, highConfidence, { credentials });
                     relationResults.push({ noteId: note.noteId, applied: applied.length, failed: failed.length });
                 }
             } catch (error) {
@@ -349,11 +458,19 @@ async function _writeEntitiesToAllCodex(
             data: {
                 rawText,
                 rawTextHash,
-                parsedJson: JSON.parse(JSON.stringify({ entities, summary })),
+                parsedJson: JSON.parse(JSON.stringify({
+                    entities: entities.map(e => {
+                        const c = created.find(n => n.title === e.title);
+                        const u = updated.find(n => n.title === e.title);
+                        return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
+                    }),
+                    summary,
+                })),
                 notesCreated: created.map((n) => n.noteId),
                 notesUpdated: updated.map((n) => n.noteId),
                 model,
                 tokensUsed,
+                userId,
             },
         });
     }

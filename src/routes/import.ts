@@ -6,7 +6,9 @@ import {
     getAllCodexNotes,
 } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { importAzgaarMap, isAzgaarMapData, getMapPreview } from "../pipeline/azgaar.ts";
+import { requireAuth } from "../plugins/auth-guard.ts";
 
 const StatblockEntrySchema = t.Object({
     name: t.String(),
@@ -56,11 +58,14 @@ const ATTR_MAP: Array<[keyof StatblockEntry, string]> = [
     ["legendaryActions", "legendaryActions"],
 ];
 
-export const importRoute = new Elysia({ name: "import" })
+export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAuthImpl?: typeof requireAuth } = {}) {
+    return new Elysia({ name: "import" })
+    .use(requireAuthImpl)
     .post(
         "/import/system-pack",
-        async ({ body }) => {
+        async ({ body, session }) => {
             const { notes, parentNoteId = "root", skipDuplicates = true } = body;
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
 
             if (!Array.isArray(notes) || notes.length === 0) {
                 return new Response(JSON.stringify({ error: "notes array is required and must not be empty", code: "INVALID_INPUT" }), {
@@ -72,7 +77,7 @@ export const importRoute = new Elysia({ name: "import" })
             let existingTitles = new Set<string>();
             if (skipDuplicates) {
                 try {
-                    const existing = await getAllCodexNotes("#statblock");
+                    const existing = await getAllCodexNotes("#statblock", credentials);
                     for (const n of existing) {
                         if (n.title) existingTitles.add(n.title.toLowerCase().trim());
                     }
@@ -106,27 +111,27 @@ export const importRoute = new Elysia({ name: "import" })
                         title: name,
                         type: "text",
                         content: entry.content ?? "",
-                    });
+                    }, credentials);
 
                     const noteId = note.note.noteId;
 
                     // Apply statblock template
-                    await setNoteTemplate(noteId, "_template_statblock");
+                    await setNoteTemplate(noteId, "_template_statblock", credentials);
 
                     // Set crName promoted attribute (name as statblock name field)
-                    await tagNote(noteId, "crName", name);
+                    await tagNote(noteId, "crName", name, credentials);
 
                     // Set #statblock label
-                    await tagNote(noteId, "statblock", "");
+                    await tagNote(noteId, "statblock", "", credentials);
 
                     // Set #importSource
-                    await tagNote(noteId, "importSource", "system-pack");
+                    await tagNote(noteId, "importSource", "system-pack", credentials);
 
                     // Map other attributes
                     for (const [key, attrName] of ATTR_MAP) {
                         const val = entry[key];
                         if (val !== undefined && val !== null && val !== "") {
-                            await tagNote(noteId, attrName, String(val));
+                            await tagNote(noteId, attrName, String(val), credentials);
                         }
                     }
 
@@ -202,7 +207,7 @@ export const importRoute = new Elysia({ name: "import" })
     )
     .post(
         "/import/azgaar",
-        async ({ body }) => {
+        async ({ body, session }) => {
             const { mapData, parentNoteId, options } = body;
 
             if (!isAzgaarMapData(mapData)) {
@@ -211,6 +216,8 @@ export const importRoute = new Elysia({ name: "import" })
                     code: "INVALID_FORMAT",
                 }), { status: 400, headers: { "Content-Type": "application/json" } });
             }
+
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
 
             try {
                 const result = await importAzgaarMap(mapData, {
@@ -221,12 +228,14 @@ export const importRoute = new Elysia({ name: "import" })
                     importCultures: options?.importCultures ?? true,
                     importNotes: options?.importNotes ?? true,
                     skipDuplicates: options?.skipDuplicates ?? true,
+                    credentials,
                 });
                 return result;
             } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                rootLogger.error("azgaar import route: unexpected error", { error: msg });
-                return new Response(JSON.stringify({ error: msg, code: "IMPORT_ERROR" }), {
+                rootLogger.error("azgaar import route: unexpected error", {
+                    error: e instanceof Error ? e.message : String(e),
+                });
+                return new Response(JSON.stringify({ error: "Import failed unexpectedly.", code: "IMPORT_ERROR" }), {
                     status: 500, headers: { "Content-Type": "application/json" },
                 });
             }
@@ -254,3 +263,6 @@ export const importRoute = new Elysia({ name: "import" })
             },
         }
     );
+}
+
+export const importRoute = createImportRoute();

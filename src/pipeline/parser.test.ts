@@ -85,4 +85,88 @@ describe("parser", () => {
         // @ts-expect-error
         expect(faction.attributes.enemies).toEqual(["The Free Cities", "The Wanderers"]);
     });
+
+    it("should parse rich wiki-style HTML content with all formatting elements", () => {
+        const richContent = [
+            '<blockquote>"The weak beg for mercy."<br><em>— Kommandant Voss</em></blockquote>',
+            '<h2>Overview</h2>',
+            '<p><strong>Voss Ironhelm</strong> is a feared commander with a <mark>50,000 gold</mark> bounty.</p>',
+            '<hr>',
+            '<h2>History</h2>',
+            '<h3>Early Years</h3>',
+            '<p>Born in <strong>Eisenstadt</strong>.</p>',
+            '<table><thead><tr><th>Enhancement</th><th>Effect</th></tr></thead>',
+            '<tbody><tr><td>Titanium Frame</td><td>400% bone density</td></tr></tbody></table>',
+            '<hr>',
+            '<h2>Relationships</h2>',
+            '<ul><li><strong>The Chancellor</strong> — transactional alliance</li></ul>',
+            '<details><summary>Physical Specs</summary><p>193cm, 136kg</p></details>',
+            '<div class="gm-only"><h2>GM Notes</h2><p>Voss is secretly planning a coup.</p></div>',
+        ].join("\n");
+
+        const json = JSON.stringify({
+            entities: [
+                {
+                    type: "character",
+                    title: "Kommandant Voss Ironhelm",
+                    content: richContent,
+                    tags: ["military", "antagonist", "empowered"],
+                    attributes: {
+                        fullName: "Voss Ironhelm",
+                        race: "Human (Enhanced)",
+                        role: "Kommandant",
+                        status: "alive",
+                        secrets: "Planning a military coup against the Chancellor",
+                    },
+                    action: "create"
+                },
+                {
+                    type: "quest",
+                    title: "Capture Kommandant Voss",
+                    content: '<h2>Overview</h2><p>A <mark>50,000 gold crown</mark> bounty on Voss.</p><div class="gm-only"><p>Voss may offer alliance if cornered.</p></div>',
+                    tags: ["bounty", "military"],
+                    attributes: {
+                        questStatus: "active",
+                        questGiver: "Senate of the Free Cities",
+                        reward: "50,000 gold crowns",
+                    },
+                    action: "create"
+                },
+                {
+                    type: "session",
+                    title: "Session 12: The Iron March Begins",
+                    content: '<h2>Recap</h2><p>Party witnessed the siege.</p>',
+                    attributes: {
+                        sessionDate: "2026-05-10",
+                        sessionStatus: "complete",
+                        recap: "Party witnessed the opening of the Iron March campaign",
+                    },
+                    action: "create"
+                }
+            ],
+            summary: "Extracted character with rich wiki formatting, a quest, and a session."
+        });
+
+        const result = parseBrainDumpResponse(json);
+        expect(result.entities.length).toBe(3);
+
+        const voss = result.entities[0];
+        expect(voss.title).toBe("Kommandant Voss Ironhelm");
+        expect(voss.content).toContain("<h2>");
+        expect(voss.content).toContain("<table>");
+        expect(voss.content).toContain('<div class="gm-only">');
+        expect(voss.content).toContain("<blockquote>");
+        expect(voss.content).toContain("<details>");
+        expect(voss.content).toContain("<mark>");
+
+        const quest = result.entities[1];
+        expect(quest.type).toBe("quest");
+        // @ts-expect-error — accessing typed attributes union
+        expect(quest.attributes.questStatus).toBe("active");
+
+        const session = result.entities[2];
+        expect(session.type).toBe("session");
+        // @ts-expect-error
+        expect(session.attributes.sessionDate).toBe("2026-05-10");
+    });
 });

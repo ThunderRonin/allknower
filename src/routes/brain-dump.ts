@@ -1,13 +1,17 @@
 import Elysia, { t } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { background } from "elysia-background";
-import { runBrainDump, commitReviewedEntities } from "../pipeline/brain-dump.ts";
+import { runBrainDump, runBrainDumpStream, commitReviewedEntities } from "../pipeline/brain-dump.ts";
+import { sseEncode } from "../pipeline/stream-types.ts";
 import { indexNote } from "../rag/indexer.ts";
+import { getModelChain } from "../pipeline/model-router.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 
 type BrainDumpRouteDeps = {
     runBrainDumpImpl?: typeof runBrainDump;
+    runBrainDumpStreamImpl?: typeof runBrainDumpStream;
     commitReviewedEntitiesImpl?: typeof commitReviewedEntities;
     indexNoteImpl?: typeof indexNote;
     requireAuthImpl?: typeof requireAuth;
@@ -16,6 +20,7 @@ type BrainDumpRouteDeps = {
 
 export function createBrainDumpRoute({
     runBrainDumpImpl = runBrainDump,
+    runBrainDumpStreamImpl = runBrainDumpStream,
     commitReviewedEntitiesImpl = commitReviewedEntities,
     indexNoteImpl = indexNote,
     requireAuthImpl = requireAuth,
@@ -29,21 +34,35 @@ export function createBrainDumpRoute({
             max: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_MAX,
             duration: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(
-                JSON.stringify({ error: "Rate limit exceeded. Brain dump is limited to 10 requests per minute." }),
+                JSON.stringify({
+                    error: "Rate limit exceeded. Brain dump is limited to 10 requests per minute.",
+                    code: "RATE_LIMITED",
+                }),
                 { status: 429, headers: { "Content-Type": "application/json" } }
             ),
         })
     )
     .post(
         "/",
-        async ({ body, backgroundTasks }) => {
+        async ({ body, backgroundTasks, session, set }) => {
             const mode = body.mode ?? "auto";
-            const result = await runBrainDumpImpl(body.rawText, mode);
+            const userId = session!.user.id;
+
+            if (body.model) {
+                const allowed = getModelChain("brain-dump");
+                if (!allowed.includes(body.model)) {
+                    set.status = 400;
+                    return { error: "INVALID_MODEL", message: `Model not in configured chain. Allowed: ${allowed.join(", ")}` };
+                }
+            }
+
+            const credentials = await resolveAllCodexCredentials(userId);
+            const result = await runBrainDumpImpl(body.rawText, mode, { credentials, userId, model: body.model });
 
             if ("reindexIds" in result) {
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
                 for (const noteId of reindexIds) {
-                    backgroundTasks.addTask(indexNoteImpl, noteId);
+                    backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
                 }
                 return rest;
             }
@@ -62,6 +81,7 @@ export function createBrainDumpRoute({
                     t.Literal("review"),
                     t.Literal("inbox"),
                 ], { description: "Processing mode: auto writes immediately, review returns proposals, inbox queues without processing" })),
+                model: t.Optional(t.String({ description: "Override primary model (must be in configured chain)" })),
             }),
             detail: {
                 summary: "Process a brain dump",
@@ -72,12 +92,90 @@ export function createBrainDumpRoute({
         }
     )
     .post(
+        "/stream",
+        async ({ body, session, set }) => {
+            const userId = session!.user.id;
+
+            if (body.model) {
+                const allowed = getModelChain("brain-dump");
+                if (!allowed.includes(body.model)) {
+                    set.status = 400;
+                    return { error: "INVALID_MODEL", message: `Model not in configured chain. Allowed: ${allowed.join(", ")}` };
+                }
+            }
+
+            const credentials = await resolveAllCodexCredentials(userId);
+
+            set.headers["Content-Type"] = "text/event-stream";
+            set.headers["Cache-Control"] = "no-cache";
+            set.headers["Connection"] = "keep-alive";
+
+            return new ReadableStream({
+                async start(controller) {
+                    const encoder = new TextEncoder();
+                    const send = (event: string, data: unknown) => {
+                        controller.enqueue(encoder.encode(sseEncode(event, data)));
+                    };
+
+                    let resultJson = "";
+                    try {
+                        for await (const chunk of runBrainDumpStreamImpl(body.rawText, {
+                            autoRelate: body.autoRelate ?? true,
+                            credentials,
+                            userId,
+                            model: body.model,
+                        })) {
+                            send(chunk.type, chunk);
+                            if (chunk.type === "done") {
+                                resultJson = chunk.raw;
+                            }
+                        }
+                    } catch (e) {
+                        send("error", { type: "error", error: e instanceof Error ? e.message : String(e) });
+                    } finally {
+                        controller.close();
+                        // Fire-and-forget reindex for created/updated notes
+                        if (resultJson) {
+                            try {
+                                const result = JSON.parse(resultJson);
+                                const reindexIds = [
+                                    ...(result.created ?? []).map((n: { noteId: string }) => n.noteId),
+                                    ...(result.updated ?? []).map((n: { noteId: string }) => n.noteId),
+                                ];
+                                for (const noteId of reindexIds) {
+                                    indexNoteImpl(noteId, credentials).catch(() => {});
+                                }
+                            } catch {}
+                        }
+                    }
+                },
+            });
+        },
+        {
+            body: t.Object({
+                rawText: t.String({
+                    minLength: 10,
+                    maxLength: 50000,
+                }),
+                autoRelate: t.Optional(t.Boolean({ default: true })),
+                model: t.Optional(t.String({ description: "Override primary model (must be in configured chain)" })),
+            }),
+            detail: {
+                summary: "Process brain dump (streaming)",
+                description: "Streaming variant of /brain-dump. Returns SSE events for each pipeline stage: status, token, reasoning, done, error.",
+                tags: ["Brain Dump"],
+            },
+        }
+    )
+    .post(
         "/commit",
-        async ({ body, backgroundTasks }) => {
-            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities);
+        async ({ body, backgroundTasks, session }) => {
+            const userId = session!.user.id;
+            const credentials = await resolveAllCodexCredentials(userId);
+            const result = await commitReviewedEntitiesImpl(body.rawText, body.approvedEntities, credentials, userId);
             const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
             for (const noteId of (reindexIds ?? [])) {
-                backgroundTasks.addTask(indexNoteImpl, noteId);
+                backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
             }
             return rest;
         },
@@ -101,11 +199,16 @@ export function createBrainDumpRoute({
     )
     .get(
         "/history",
-        async () => {
+        async ({ query, session }) => {
             const { default: prisma } = await import("../db/client.ts");
+            const limit = Math.min(Number(query.limit ?? 20), 100);
+            const cursor = query.cursor;
+
             const history = await prisma.brainDumpHistory.findMany({
+                where: { userId: session!.user.id },
                 orderBy: { createdAt: "desc" },
-                take: 20,
+                take: limit + 1,
+                ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
                 select: {
                     id: true,
                     rawText: true,
@@ -116,19 +219,28 @@ export function createBrainDumpRoute({
                     createdAt: true,
                 },
             });
-            return history;
+
+            const hasMore = history.length > limit;
+            const items = hasMore ? history.slice(0, limit) : history;
+            const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+            return { items, nextCursor, hasMore };
         },
         {
+            query: t.Object({
+                cursor: t.Optional(t.String({ description: "ID of the last item from the previous page (omit for first page)" })),
+                limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, default: 20, description: "Number of items per page (1–100, default 20)" })),
+            }),
             detail: {
                 summary: "Get brain dump history",
-                description: "Returns the last 20 brain dump operations.",
+                description: "Returns a paginated list of brain dump operations. Use nextCursor from the response to fetch the next page.",
                 tags: ["Brain Dump"],
             },
         }
     )
     .get(
         "/history/:id",
-        async ({ params, set }) => {
+        async ({ params, set, session }) => {
             const { default: prisma } = await import("../db/client.ts");
             const entry = await prisma.brainDumpHistory.findUnique({
                 where: { id: params.id },
@@ -141,16 +253,18 @@ export function createBrainDumpRoute({
                     model: true,
                     tokensUsed: true,
                     createdAt: true,
+                    userId: true,
                 },
             });
-            if (!entry) {
+            if (!entry || entry.userId !== session!.user.id) {
                 set.status = 404;
-                return { error: "Brain dump entry not found" };
+                return { error: "Brain dump entry not found", code: "ENTRY_NOT_FOUND" };
             }
             // Extract summary from parsedJson if present
             const parsed = entry.parsedJson as Record<string, unknown> | null;
+            const { userId: _uid, ...rest } = entry;
             return {
-                ...entry,
+                ...rest,
                 summary: (parsed?.summary as string | null) ?? null,
             };
         },

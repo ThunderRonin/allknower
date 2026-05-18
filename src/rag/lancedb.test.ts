@@ -11,6 +11,7 @@ mock.module("../env.ts", () => ({
         OPENROUTER_API_KEY: "test-key",
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
         EMBEDDING_CLOUD: "test/embedding-model",
+        RERANK_MODEL: "cohere/rerank-4-pro",
     },
 }));
 
@@ -21,14 +22,9 @@ mock.module("./embedder.ts", () => ({
     EMBEDDING_DIMENSIONS: 4,
 }));
 
-// Mock model-router — lancedb.ts imports callWithFallback for reranking
-mock.module("../pipeline/model-router.ts", () => ({
-    callWithFallback: async () => ({ raw: '{"scores":[]}', tokensUsed: 0, model: "test", latencyMs: 0 }),
-    getModelChain: () => ["test-model"],
-}));
 
 import { describe, expect, it } from "bun:test";
-import { chunkText, classifyQueryComplexity } from "./lancedb.ts";
+import { chunkText } from "./lancedb.ts";
 
 // ── chunkText (pure chunking function) ────────────────────────────────────────
 
@@ -133,63 +129,5 @@ describe("chunkText", () => {
         for (const ch of result) {
             expect(ch.trim().length).toBeGreaterThan(0);
         }
-    });
-});
-
-// ── classifyQueryComplexity ───────────────────────────────────────────────────
-
-describe("classifyQueryComplexity", () => {
-    it('"Aria Vale" → "simple"', () => {
-        expect(classifyQueryComplexity("Aria Vale")).toBe("simple");
-    });
-
-    it('"Aether Keep location type" → "simple" (<=8 words, no connectives)', () => {
-        expect(classifyQueryComplexity("Aether Keep location type")).toBe("simple");
-    });
-
-    it('"how does Aria Vale relate to Aether Keep" → "complex" (has "how", "relate")', () => {
-        expect(classifyQueryComplexity("how does Aria Vale relate to Aether Keep")).toBe("complex");
-    });
-
-    it('"why did the war cause the collapse of Ironmark" → "complex"', () => {
-        expect(classifyQueryComplexity("why did the war cause the collapse of Ironmark")).toBe("complex");
-    });
-
-    it('"relationship between Kael and the northern factions" → "complex"', () => {
-        expect(classifyQueryComplexity("relationship between Kael and the northern factions")).toBe("complex");
-    });
-
-    it("9-word query with no connectives → complex (length > 8)", () => {
-        // 9 words, no connectives
-        expect(classifyQueryComplexity("Aldric the king rules Valorheim from his throne city")).toBe("complex");
-    });
-
-    it("8-word query with no connectives → simple (exactly at threshold)", () => {
-        // exactly 8 words
-        expect(classifyQueryComplexity("Aldric rules Valorheim from his seat every day")).toBe("simple");
-    });
-
-    it('query containing "between" → "complex"', () => {
-        expect(classifyQueryComplexity("rivalry between two clans")).toBe("complex");
-    });
-
-    it('query containing "influence" → "complex"', () => {
-        expect(classifyQueryComplexity("divine influence over the realm")).toBe("complex");
-    });
-
-    it('query containing "impact" → "complex"', () => {
-        expect(classifyQueryComplexity("impact of the Dragon Wars")).toBe("complex");
-    });
-
-    it('query containing "connect" → "complex"', () => {
-        expect(classifyQueryComplexity("connect the two factions together")).toBe("complex");
-    });
-
-    it("empty string → simple (0 words, no connectives)", () => {
-        expect(classifyQueryComplexity("")).toBe("simple");
-    });
-
-    it('case-insensitive matching ("HOW does" → complex)', () => {
-        expect(classifyQueryComplexity("HOW does this work")).toBe("complex");
     });
 });

@@ -94,7 +94,7 @@ describe("upsertNoteChunks", () => {
     it("creates table on first upsert", async () => {
         await expect(
             lancedb.upsertNoteChunks("note-1", "Aldric", ["Aldric is the king."])
-        ).resolves.not.toThrow();
+        ).resolves.toBeUndefined();
     });
 
     it("upserts multiple chunks under same noteId", async () => {
@@ -113,7 +113,7 @@ describe("upsertNoteChunks", () => {
     });
 
     it("accepts empty chunks array without error", async () => {
-        await expect(lancedb.upsertNoteChunks("note-empty", "Empty", [])).resolves.not.toThrow();
+        await expect(lancedb.upsertNoteChunks("note-empty", "Empty", [])).resolves.toBeUndefined();
     });
 
     it("stores noteId and noteTitle in rows", async () => {
@@ -149,7 +149,7 @@ describe("deleteNoteChunks", () => {
 
     it("does not throw when deleting noteId that does not exist", async () => {
         await lancedb.upsertNoteChunks("note-exists", "Exists", ["Content."]);
-        await expect(lancedb.deleteNoteChunks("note-nonexistent")).resolves.not.toThrow();
+        await expect(lancedb.deleteNoteChunks("note-nonexistent")).resolves.toBeUndefined();
     });
 });
 

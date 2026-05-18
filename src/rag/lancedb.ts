@@ -2,14 +2,9 @@ import * as lancedb from "@lancedb/lancedb";
 import { embed, embedBatch, EMBEDDING_DIMENSIONS } from "./embedder.ts";
 import type { RagChunk } from "../types/lore.ts";
 import { env } from "../env.ts";
-import { pipeline } from "@xenova/transformers";
-import { callWithFallback } from "../pipeline/model-router.ts";
 import { rootLogger } from "../logger.ts";
 import { mkdirSync } from "node:fs";
 
-const DB_PATH = env.LANCEDB_PATH;
-// Ensure the directory exists before LanceDB tries to benchmark I/O against it
-mkdirSync(DB_PATH, { recursive: true });
 const TABLE_NAME = "lore_embeddings";
 
 let _db: lancedb.Connection | null = null;
@@ -25,11 +20,17 @@ export function _resetConnection(): void {
 /**
  * Get (or create) the LanceDB connection and lore_embeddings table.
  * LanceDB is embedded — no separate server needed.
+ *
+ * Reads env.LANCEDB_PATH dynamically so that _resetConnection() followed by
+ * a mock.module("../env.ts", …) change in tests picks up the new path.
  */
 export async function getTable(): Promise<lancedb.Table> {
     if (_table) return _table;
 
-    _db = await lancedb.connect(DB_PATH);
+    const dbPath = env.LANCEDB_PATH;
+    // Ensure the directory exists before LanceDB tries to connect
+    mkdirSync(dbPath, { recursive: true });
+    _db = await lancedb.connect(dbPath);
 
     const existingTables = await _db.tableNames();
 
@@ -84,106 +85,81 @@ export async function upsertNoteChunks(
 }
 
 /**
- * Classify query complexity to decide reranking strategy.
+ * Rerank candidates via the native OpenRouter /rerank endpoint.
+ * Uses a purpose-built reranking model (e.g. cohere/rerank-4-pro) which is
+ * faster and more accurate than both the local Xenova cross-encoder (which
+ * was broken on Bun) and the LLM-as-a-Judge approach (which was slow).
  *
- * Simple → Xenova cross-encoder (fast, local)
- * Complex → LLM-as-a-Judge (holistic reasoning about relevance)
+ * Falls back gracefully to base vector similarity on any error.
  */
-const RELATIONAL_CONNECTIVES = new Set([
-    "how", "why", "between", "affect", "affect", "relate",
-    "relationship", "influence", "impact", "connect", "cause",
-    "because", "through", "across", "within",
-]);
-
-export function classifyQueryComplexity(query: string): "simple" | "complex" {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length > 8) return "complex";
-    if (words.some(w => RELATIONAL_CONNECTIVES.has(w))) return "complex";
-    return "simple";
-}
-
-/**
- * Option A — Local cross-encoder reranker using Xenova/transformers.
- * Fast, no API call, good for entity lookups and short queries.
- */
-async function rerankWithCrossEncoder(
+async function rerankWithOpenRouter(
     query: string,
     candidates: RagChunk[]
 ): Promise<RagChunk[]> {
-    const reranker = await pipeline("text-classification", "Xenova/ms-marco-MiniLM-L-6-v2");
-
-    const pairs = candidates.map(chunk => [query, chunk.content]);
-    const rerankResults = await reranker(pairs as any);
-
-    return candidates.map((chunk, i) => {
-        const rawOutput = Array.isArray(rerankResults) ? rerankResults[i] : rerankResults;
-        const rerankScore = (rawOutput as any).score !== undefined
-            ? ((rawOutput as any).label === "LABEL_1" ? (rawOutput as any).score : 1 - (rawOutput as any).score)
-            : 0;
-        return { ...chunk, score: rerankScore };
-    }).sort((a, b) => b.score - a.score);
-}
-
-/**
- * Option C — LLM-as-a-Judge reranker.
- * Better for complex, relational queries that need holistic reasoning.
- * Uses the existing model router for fallback chains + timeout logic.
- */
-async function rerankWithLLM(
-    query: string,
-    candidates: RagChunk[]
-): Promise<RagChunk[]> {
-    const system = `You are a relevance judge for a fantasy worldbuilding knowledge base called All Reach.
-Given a search query and a list of candidate documents, score each document's relevance to the query on a 0-1 scale.
-
-Return JSON: { "scores": [0.95, 0.2, 0.8, ...] }
-
-The scores array must have exactly the same length as the candidates list, in the same order.
-Score based on semantic relevance, not just keyword overlap. Consider narrative connections, implied relationships, and contextual importance.`;
-
-    const candidateBlock = candidates
-        .map((c, i) => `[${i}] ${c.noteTitle}: ${c.content.slice(0, 300)}`)
-        .join("\n\n");
-
-    const user = `Query: "${query}"\n\nCandidates:\n${candidateBlock}`;
-
-    const { raw } = await callWithFallback("rerank", [
-        { role: "system", content: system },
-        { role: "user", content: user },
-    ], {
-        temperature: 0.1,
-        maxTokens: 512,
-        responseFormat: { type: "json_object" },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
     try {
-        const parsed = JSON.parse(raw);
-        const scores: number[] = parsed.scores ?? [];
+        const response = await fetch(`${env.OPENROUTER_BASE_URL}/rerank`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://allknower.local",
+                "X-OpenRouter-Title": "AllKnower",
+            },
+            body: JSON.stringify({
+                model: env.RERANK_MODEL,
+                query,
+                documents: candidates.map(c => c.content.slice(0, 512)),
+                top_n: candidates.length,
+            }),
+            signal: controller.signal,
+        });
 
-        if (scores.length !== candidates.length) {
-            rootLogger.warn("LLM reranker returned wrong number of scores, falling back to vector scores", {
-                expected: candidates.length,
-                got: scores.length,
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            rootLogger.warn("OpenRouter rerank returned non-200", {
+                status: response.status,
+                body: body.slice(0, 200),
             });
             return candidates;
         }
 
-        return candidates.map((chunk, i) => ({
-            ...chunk,
-            score: scores[i] ?? 0,
-        })).sort((a, b) => b.score - a.score);
-    } catch {
-        rootLogger.warn("Failed to parse LLM reranker response, falling back to vector scores");
+        const data = await response.json() as {
+            results: Array<{ index: number; relevance_score: number }>;
+        };
+
+        if (!data.results?.length) {
+            rootLogger.warn("OpenRouter rerank returned empty results");
+            return candidates;
+        }
+
+        return data.results
+            .map(r => ({
+                ...candidates[r.index],
+                score: r.relevance_score,
+            }))
+            .sort((a, b) => b.score - a.score);
+    } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+            rootLogger.warn("OpenRouter rerank timed out after 30s");
+        } else {
+            rootLogger.warn("OpenRouter rerank failed", {
+                error: e instanceof Error ? e.message : String(e),
+            });
+        }
         return candidates;
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
 /**
  * Semantic similarity search — returns top-k most relevant lore chunks.
  *
- * Uses a hybrid reranking strategy:
- * - Simple queries (≤8 words, no relational connectives) → Xenova cross-encoder
- * - Complex queries (>8 words or contains how/why/between/etc) → LLM-as-a-Judge
+ * Uses OpenRouter's native rerank endpoint (cohere/rerank-4-pro) for
+ * second-pass relevance scoring after initial vector similarity retrieval.
  */
 export async function queryLore(
     queryText: string,
@@ -237,22 +213,16 @@ export async function queryLore(
         return [];
     }
 
-    // 3. Hybrid reranking — auto-dispatch based on query complexity
-    const complexity = classifyQueryComplexity(queryText);
-
+    // 3. Rerank via OpenRouter native rerank endpoint
     try {
-        if (complexity === "simple") {
-            candidates = await rerankWithCrossEncoder(queryText, candidates);
-        } else {
-            candidates = await rerankWithLLM(queryText, candidates);
-        }
+        candidates = await rerankWithOpenRouter(queryText, candidates);
         rootLogger.info("Reranking complete", {
-            strategy: complexity === "simple" ? "Xenova cross-encoder" : "LLM-as-a-Judge",
+            strategy: "OpenRouter native rerank",
+            model: env.RERANK_MODEL,
             query: queryText.slice(0, 60),
         });
     } catch (e: unknown) {
         rootLogger.warn("Reranking failed, falling back to base vector similarity", {
-            strategy: complexity,
             error: e instanceof Error ? e.message : String(e),
         });
     }
@@ -289,6 +259,27 @@ export async function checkLanceDbHealth(): Promise<{ ok: boolean; error?: strin
         return { ok: true };
     } catch (e: any) {
         return { ok: false, error: e.message };
+    }
+}
+
+/**
+ * Wipes the entire LanceDB lore_embeddings table.
+ */
+export async function wipeDatabase(): Promise<void> {
+    if (_db) {
+        const tables = await _db.tableNames();
+        if (tables.includes(TABLE_NAME)) {
+            await _db.dropTable(TABLE_NAME);
+            _table = null;
+        }
+    } else {
+        const dbPath = env.LANCEDB_PATH;
+        const tempDb = await lancedb.connect(dbPath);
+        const tables = await tempDb.tableNames();
+        if (tables.includes(TABLE_NAME)) {
+            await tempDb.dropTable(TABLE_NAME);
+        }
+        _table = null;
     }
 }
 

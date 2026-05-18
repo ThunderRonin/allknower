@@ -25,6 +25,7 @@ import {
     setNoteTemplate,
     tagNote,
     getAllCodexNotes,
+    EtapiCredentials,
 } from "../etapi/client.ts";
 import { rootLogger } from "../logger.ts";
 
@@ -117,6 +118,7 @@ export interface AzgaarImportOptions {
     importCultures?: boolean;
     importNotes?: boolean;
     skipDuplicates?: boolean;
+    credentials?: EtapiCredentials;
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────
@@ -141,10 +143,10 @@ function emptyBucket() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function buildExistingSet(label: string): Promise<Set<string>> {
+async function buildExistingSet(label: string, credentials?: EtapiCredentials): Promise<Set<string>> {
     const existing = new Set<string>();
     try {
-        const notes = await getAllCodexNotes(`#${label}`);
+        const notes = await getAllCodexNotes(`#${label}`, credentials);
         for (const n of notes) {
             if (n.title) existing.add(n.title.toLowerCase().trim());
         }
@@ -162,7 +164,8 @@ async function safeMakeNote(
     labels: Array<[string, string]>,
     bucket: { created: ImportResultEntry[]; skipped: SkippedEntry[]; errors: ErrorEntry[] },
     existing: Set<string>,
-    skipDuplicates: boolean
+    skipDuplicates: boolean,
+    credentials?: EtapiCredentials
 ) {
     const key = title.toLowerCase().trim();
     if (skipDuplicates && existing.has(key)) {
@@ -171,13 +174,13 @@ async function safeMakeNote(
     }
 
     try {
-        const note = await createNote({ parentNoteId, title, type: "text", content });
+        const note = await createNote({ parentNoteId, title, type: "text", content }, credentials);
         const noteId = note.note.noteId;
 
-        if (templateId) await setNoteTemplate(noteId, templateId);
+        if (templateId) await setNoteTemplate(noteId, templateId, credentials);
 
         for (const [name, value] of labels) {
-            await tagNote(noteId, name, value);
+            await tagNote(noteId, name, value, credentials);
         }
 
         bucket.created.push({ noteId, name: title });
@@ -270,7 +273,7 @@ export async function importAzgaarMap(
 
     // --- States (Kingdoms, Empires → _template_faction) ----------------------
     if (importStates) {
-        const existing = skipDuplicates ? await buildExistingSet("faction") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("faction", opts.credentials) : new Set<string>();
         const states = (pack.states ?? []).filter((s) => s.i > 0 && !s.removed && s.name?.trim());
 
         for (const state of states) {
@@ -296,14 +299,15 @@ export async function importAzgaarMap(
                 labels,
                 result.states,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
 
     // --- Burgs (Cities, Towns → _template_location) --------------------------
     if (importBurgs) {
-        const existing = skipDuplicates ? await buildExistingSet("location") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("location", opts.credentials) : new Set<string>();
         // Skip i === 0 (reserved) and removed burgs
         const burgs = (pack.burgs ?? []).filter((b) => b.i > 0 && !b.removed && b.name?.trim());
 
@@ -337,6 +341,11 @@ export async function importAzgaarMap(
             const cultureName = burg.culture != null ? cultureNameById.get(burg.culture) : undefined;
             if (cultureName) labels.push(["culture", cultureName]);
 
+            // Pixel coordinates from the FMG canvas — stored as #geolocation for map display
+            if (burg.x !== undefined && burg.y !== undefined) {
+                labels.push(["geolocation", `${Math.round(burg.x)}, ${Math.round(burg.y)}`]);
+            }
+
             const traits: string[] = [];
             if (isCapital) traits.push("capital");
             if (isPort) traits.push("port");
@@ -356,14 +365,26 @@ export async function importAzgaarMap(
                 labels,
                 result.burgs,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
+        }
+
+        // Store map dimensions on the parent note so Portal's MapViewer can size
+        // the canvas.  Only tag a real parent folder — never pollute the root note.
+        if (parentNoteId !== "root" && burgs.length > 0) {
+            const maxX = Math.max(...burgs.map((b) => b.x ?? 0));
+            const maxY = Math.max(...burgs.map((b) => b.y ?? 0));
+            if (maxX > 0 && maxY > 0) {
+                await tagNote(parentNoteId, "mapWidth", String(Math.ceil(maxX * 1.1)), opts.credentials);
+                await tagNote(parentNoteId, "mapHeight", String(Math.ceil(maxY * 1.1)), opts.credentials);
+            }
         }
     }
 
     // --- Religions (→ _template_religion) ------------------------------------
     if (importReligions) {
-        const existing = skipDuplicates ? await buildExistingSet("religion") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("religion", opts.credentials) : new Set<string>();
         const religions = (pack.religions ?? []).filter((r) => r.i > 0 && !r.removed && r.name?.trim());
 
         for (const rel of religions) {
@@ -391,14 +412,15 @@ export async function importAzgaarMap(
                 labels,
                 result.religions,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
 
     // --- Cultures (→ _template_race) -----------------------------------------
     if (importCultures) {
-        const existing = skipDuplicates ? await buildExistingSet("race") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("race", opts.credentials) : new Set<string>();
         const cultures = (pack.cultures ?? []).filter((c) => c.i > 0 && !c.removed && c.name?.trim());
 
         for (const culture of cultures) {
@@ -418,14 +440,15 @@ export async function importAzgaarMap(
                 labels,
                 result.cultures,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }
 
     // --- Map Notes (POI / annotations → _template_location) ------------------
     if (importNotes) {
-        const existing = skipDuplicates ? await buildExistingSet("location") : new Set<string>();
+        const existing = skipDuplicates ? await buildExistingSet("location", opts.credentials) : new Set<string>();
         const mapNotes = (mapData.notes ?? []).filter((n) => n.name?.trim());
 
         for (const mn of mapNotes) {
@@ -448,7 +471,8 @@ export async function importAzgaarMap(
                 labels,
                 result.notes,
                 existing,
-                skipDuplicates
+                skipDuplicates,
+                opts.credentials
             );
         }
     }

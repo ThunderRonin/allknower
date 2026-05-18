@@ -17,8 +17,26 @@ model User {
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
   sessions      Session[]
+  integrations  UserIntegration[]
 
   @@map("users")
+}
+
+model UserIntegration {
+  id             String   @id @default(cuid())
+  userId         String
+  provider       String
+  baseUrl        String
+  encryptedToken String
+  tokenLast4     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider])
+  @@map("user_integrations")
 }
 
 model Session {
@@ -68,28 +86,32 @@ model Verification {
 
 model BrainDumpHistory {
   id           String   @id @default(cuid())
+  userId       String?
   rawText      String
-  rawTextHash  String?                    // SHA-256 of rawText for idempotency dedup
   parsedJson   Json
   notesCreated String[]
   notesUpdated String[]
   model        String
   tokensUsed   Int?
   createdAt    DateTime @default(now())
+  rawTextHash  String?
 
+  @@index([userId])
   @@index([rawTextHash, createdAt])
   @@map("brain_dump_history")
 }
 
 model LLMCallLog {
   id         String   @id @default(cuid())
+  userId     String?
   requestId  String?
-  task       String                       // "brain-dump" | "consistency" | "suggest" | etc.
-  model      String                       // model that actually handled the request
+  task       String
+  model      String
   tokensUsed Int
   latencyMs  Int
   createdAt  DateTime @default(now())
 
+  @@index([userId])
   @@index([task])
   @@index([createdAt])
   @@map("llm_call_log")
@@ -117,21 +139,23 @@ model AppConfig {
 
 model RelationHistory {
   id           String   @id @default(cuid())
+  userId       String?
   sourceNoteId String
   targetNoteId String
   type         String
+  relationName String?
   description  String?
   createdAt    DateTime @default(now())
 
+  @@index([userId])
   @@map("relation_history")
 }
 
-// ── Tier 3: Session state for multi-turn context compaction ───────────────────
-
 model LoreSession {
   id                String               @id @default(cuid())
+  userId            String?
   title             String?
-  state             Json                 // LoreSessionState
+  state             Json
   tokensAccumulated Int                  @default(0)
   compactionCount   Int                  @default(0)
   compactionFailed  Int                  @default(0)
@@ -140,16 +164,17 @@ model LoreSession {
   updatedAt         DateTime             @updatedAt
   messages          LoreSessionMessage[]
 
+  @@index([userId])
   @@map("lore_sessions")
 }
 
 model LoreSessionMessage {
   id         String      @id @default(cuid())
   sessionId  String
-  role       String      // "user" | "assistant" | "system"
+  role       String
   content    String
   tokenCount Int         @default(0)
-  metadata   Json?       // { model, latencyMs, ragChunksUsed, compacted: bool }
+  metadata   Json?
   createdAt  DateTime    @default(now())
   session    LoreSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

@@ -21,11 +21,18 @@ const mockChunkText = mock((_text: string) => ["chunk 1", "chunk 2"]);
 mock.module("../etapi/client.ts", () => ({
     getNoteContent: mockGetNoteContent,
     getAllCodexNotes: mockGetAllCodexNotes,
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     createNote: mock(async () => ({ note: { noteId: "new-note" }, branch: {} })),
     tagNote: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async (noteId: string) => ({ noteId })),
+    createAttribute: mock(async () => ({})),
+    createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("./lancedb.ts", () => ({
@@ -37,7 +44,7 @@ mock.module("./lancedb.ts", () => ({
 }));
 
 const mockPrismaRagUpsert = mock(async () => ({}));
-const mockPrismaFindMany = mock(async () => []);
+const mockPrismaFindMany = mock(async (): Promise<{ noteId: string; embeddedAt: Date }[]> => []);
 
 mock.module("../db/client.ts", () => ({
     default: {
@@ -72,7 +79,7 @@ beforeEach(() => {
 describe("indexNote", () => {
     it("fetches note content via getNoteContent", async () => {
         await indexNote("note-1");
-        expect(mockGetNoteContent).toHaveBeenCalledWith("note-1");
+        expect(mockGetNoteContent).toHaveBeenCalledWith("note-1", undefined);
     });
 
     it("strips HTML tags before embedding (plain text only)", async () => {
@@ -96,7 +103,7 @@ describe("indexNote", () => {
 
     it("fetches note title via getAllCodexNotes", async () => {
         await indexNote("note-1");
-        expect(mockGetAllCodexNotes).toHaveBeenCalledWith(expect.stringContaining("note-1"));
+        expect(mockGetAllCodexNotes).toHaveBeenCalledWith(expect.stringContaining("note-1"), undefined);
     });
 
     it("falls back to noteId as title when ETAPI returns no results", async () => {
@@ -142,7 +149,7 @@ describe("indexNote", () => {
 describe("fullReindex", () => {
     it("calls getAllCodexNotes(\"#lore\")", async () => {
         await fullReindex();
-        expect(mockGetAllCodexNotes).toHaveBeenCalledWith("#lore");
+        expect(mockGetAllCodexNotes).toHaveBeenCalledWith("#lore", undefined);
     });
 
     it("calls indexNote for each found note", async () => {
@@ -198,7 +205,7 @@ describe("reindexStaleNotes", () => {
         mockGetAllCodexNotes.mockResolvedValue([]);
         mockPrismaFindMany.mockResolvedValue([]);
         await reindexStaleNotes();
-        expect(mockGetAllCodexNotes).toHaveBeenCalledWith("#lore");
+        expect(mockGetAllCodexNotes).toHaveBeenCalledWith("#lore", undefined);
         expect(mockPrismaFindMany).toHaveBeenCalled();
     });
 

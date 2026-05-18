@@ -12,10 +12,16 @@ mock.module("../etapi/client.ts", () => ({
     tagNote: mockTagNote,
     createAttribute: mockCreateAttribute,
     getAllCodexNotes: mock(async () => []),
+    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
     getNoteContent: mock(async () => ""),
+    createRelation: mock(async () => {}),
+    deleteNote: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
     setNoteContent: mock(async () => {}),
     updateNote: mock(async () => ({})),
+    checkAllCodexHealth: mock(async () => ({ ok: true })),
+    probeAllCodex: mock(async () => ({ ok: true })),
+    invalidateCredentialCache: mock(() => {}),
 }));
 
 mock.module("../db/client.ts", () => ({
@@ -26,11 +32,12 @@ mock.module("../db/client.ts", () => ({
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
-import { setupRoute } from "./setup.ts";
+import { createSetupRoute } from "./setup.ts";
+import { requireAuthBypass } from "../../test/helpers/auth.ts";
 import { requestJson } from "../../test/helpers/http.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 
-const app = new Elysia().use(setupRoute);
+const app = new Elysia().use(createSetupRoute({ requireAuthImpl: requireAuthBypass }));
 
 beforeEach(() => {
     mockCreateNote.mockClear();
@@ -57,7 +64,7 @@ describe("POST /setup/seed-templates", () => {
     it('tags container with "loreTemplates"', async () => {
         await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const tagCall = mockTagNote.mock.calls.find(
-            (c) => c[0] === "_lore_templates_container" && c[1] === "loreTemplates"
+            (c) => (c as any[])[0] === "_lore_templates_container" && (c as any[])[1] === "loreTemplates"
         );
         expect(tagCall).toBeDefined();
     });
@@ -72,7 +79,7 @@ describe("POST /setup/seed-templates", () => {
     it('tags each template note with "template"', async () => {
         await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const templateTags = mockTagNote.mock.calls.filter(
-            (c) => c[1] === "template"
+            (c) => (c as any[])[1] === "template"
         );
         expect(templateTags.length).toBe(Object.keys(TEMPLATE_ID_MAP).length);
     });
@@ -80,7 +87,7 @@ describe("POST /setup/seed-templates", () => {
     it("creates promoted attribute labels for each template field", async () => {
         await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const promotedAttrCalls = mockCreateAttribute.mock.calls.filter(
-            (c) => (c[0] as any).name?.startsWith("label:")
+            (c) => ((c as any[])[0] as any).name?.startsWith("label:")
         );
         expect(promotedAttrCalls.length).toBeGreaterThan(0);
     });
@@ -88,8 +95,8 @@ describe("POST /setup/seed-templates", () => {
     it('promoted attribute format: name="label:FIELDNAME", value="promoted,TYPE"', async () => {
         await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const charAttr = mockCreateAttribute.mock.calls.find(
-            (c) => (c[0] as any).name === "label:fullName"
-        );
+            (c) => ((c as any[])[0] as any).name === "label:fullName"
+        ) as any[] | undefined;
         expect(charAttr).toBeDefined();
         const attrParams = charAttr![0] as any;
         expect(attrParams.value).toMatch(/^promoted,/);
@@ -100,7 +107,7 @@ describe("POST /setup/seed-templates", () => {
             if (params.noteId === "_lore_templates_container") {
                 throw new Error("Note already exists");
             }
-            return { note: { noteId: params.noteId ?? "x" }, branch: {} };
+            return { note: { noteId: params.noteId ?? "x", title: params.title }, branch: {} };
         });
         const { status } = await requestJson(app, "/setup/seed-templates", { method: "POST" });
         expect(status).toBe(200);
@@ -111,7 +118,7 @@ describe("POST /setup/seed-templates", () => {
             if (params.noteId !== "_lore_templates_container") {
                 throw new Error("ETAPI 400: already exists");
             }
-            return { note: { noteId: params.noteId }, branch: {} };
+            return { note: { noteId: params.noteId, title: params.title }, branch: {} };
         });
         const { json } = await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const body = json as any;
@@ -124,7 +131,7 @@ describe("POST /setup/seed-templates", () => {
             if (params.noteId !== "_lore_templates_container") {
                 throw new Error("Unexpected database failure");
             }
-            return { note: { noteId: params.noteId }, branch: {} };
+            return { note: { noteId: params.noteId, title: params.title }, branch: {} };
         });
         const { json } = await requestJson(app, "/setup/seed-templates", { method: "POST" });
         const body = json as any;

@@ -3,6 +3,8 @@ import { queryLore } from "../rag/lancedb.ts";
 import { indexNote, fullReindex, reindexStaleNotes } from "../rag/indexer.ts";
 import prisma from "../db/client.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
+import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import { rootLogger } from "../logger.ts";
 
 export const ragRoute = new Elysia({ prefix: "/rag" })
     .use(requireAuth)
@@ -26,18 +28,20 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex/:noteId",
-        async ({ params }) => {
+        async ({ params, session }) => {
             try {
-                await indexNote(params.noteId);
+                const credentials = await resolveAllCodexCredentials(session!.user.id);
+                await indexNote(params.noteId, credentials);
                 return { ok: true, noteId: params.noteId };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 const missingNote = /missing note|not found|\b404\b/i.test(message);
+                rootLogger.error("rag reindex failed", { noteId: params.noteId, error: message });
 
                 return new Response(
                     JSON.stringify({
                         error: missingNote ? "NOTE_NOT_FOUND" : "REINDEX_FAILED",
-                        message,
+                        message: missingNote ? "Note not found." : "Reindex failed.",
                         noteId: params.noteId,
                     }),
                     {
@@ -58,8 +62,9 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex",
-        async () => {
-            const result = await fullReindex();
+        async ({ session }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+            const result = await fullReindex(credentials);
             return result;
         },
         {
@@ -72,8 +77,9 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     )
     .post(
         "/reindex-stale",
-        async () => {
-            const result = await reindexStaleNotes();
+        async ({ session }) => {
+            const credentials = await resolveAllCodexCredentials(session!.user.id);
+            const result = await reindexStaleNotes(credentials);
             return result;
         },
         {
