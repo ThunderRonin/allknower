@@ -8,6 +8,10 @@ import { runArticleCopilotTurn, runArticleCopilotStream, validateProposalScope }
 import { sseEncode } from "../pipeline/stream-types.ts";
 import { compactRagContext } from "../rag/compact-context.ts";
 import type { RagChunk } from "../types/lore.ts";
+import prisma from "../db/client.ts";
+import { shouldCompact, compactSession } from "../pipeline/session-compactor.ts";
+import { countTokens } from "../utils/tokens.ts";
+import { rootLogger } from "../logger.ts";
 
 const ChatMessageBody = t.Object({
     role: t.Union([t.Literal("user"), t.Literal("assistant")]),
@@ -36,6 +40,16 @@ const CopilotRagChunkBody = t.Object({
     title: t.String(),
     excerpt: t.String(),
     score: t.Number(),
+});
+
+const ArticleCopilotBody = t.Object({
+    noteId: t.String(),
+    sessionId: t.Optional(t.String()),
+    transcript: t.Array(ChatMessageBody),
+    currentNote: CopilotNoteContextBody,
+    linkedNotes: t.Array(CopilotNoteContextBody),
+    ragContext: t.Array(CopilotRagChunkBody),
+    writableTargetIds: t.Array(t.String()),
 });
 
 /** Adapt Portal's CopilotRagChunk[] → AllKnower RagChunk[] for compaction. */
@@ -82,24 +96,83 @@ export function createCopilotRoute({
     )
     .post(
         "/article",
-        async ({ body }) => {
+        async ({ body, session, set }) => {
             const parsed = ArticleCopilotRequestSchema.parse(body);
             const compactedRag = await compactRagContext(
                 portalChunksToRag(parsed.ragContext),
                 { task: "article-copilot" },
             );
             const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
-            return runArticleCopilotTurn(compactedRequest);
+
+            // ── Session lifecycle ────────────────────────────────────────
+            const userId = session!.user.id;
+            let loreSession;
+            if (parsed.sessionId) {
+                loreSession = await prisma.loreSession.findUnique({
+                    where: { id: parsed.sessionId },
+                });
+                if (!loreSession || loreSession.userId !== userId) {
+                    set.status = 404;
+                    return { error: "NOT_FOUND", message: "Session not found" };
+                }
+            } else {
+                loreSession = await prisma.loreSession.create({
+                    data: {
+                        userId,
+                        title: compactedRequest.currentNote.title,
+                        state: {},
+                        tokensAccumulated: 0,
+                    },
+                });
+            }
+
+            // Tier 3 compaction check
+            if (shouldCompact(loreSession)) {
+                try {
+                    await compactSession(loreSession);
+                    loreSession = await prisma.loreSession.findUniqueOrThrow({
+                        where: { id: loreSession.id },
+                    });
+                } catch (e) {
+                    // CompactionLockError is non-fatal — proceed with existing context
+                    rootLogger.warn("Session compaction skipped", { error: String(e) });
+                }
+            }
+
+            // Persist user message (before LLM call — may leave orphan on LLM failure)
+            const userContent = parsed.transcript.at(-1)?.content ?? "";
+            await prisma.loreSessionMessage.create({
+                data: {
+                    sessionId: loreSession.id,
+                    role: "user",
+                    content: userContent,
+                },
+            });
+
+            // Run LLM
+            const response = await runArticleCopilotTurn(compactedRequest);
+
+            // Persist assistant message + update token accumulator
+            const msgTokens = countTokens(response.assistantMessage);
+            await Promise.all([
+                prisma.loreSessionMessage.create({
+                    data: {
+                        sessionId: loreSession.id,
+                        role: "assistant",
+                        content: response.assistantMessage,
+                        tokenCount: msgTokens,
+                    },
+                }),
+                prisma.loreSession.update({
+                    where: { id: loreSession.id },
+                    data: { tokensAccumulated: { increment: msgTokens } },
+                }),
+            ]);
+
+            return { ...response, sessionId: loreSession.id };
         },
         {
-            body: t.Object({
-                noteId: t.String(),
-                transcript: t.Array(ChatMessageBody),
-                currentNote: CopilotNoteContextBody,
-                linkedNotes: t.Array(CopilotNoteContextBody),
-                ragContext: t.Array(CopilotRagChunkBody),
-                writableTargetIds: t.Array(t.String()),
-            }),
+            body: ArticleCopilotBody,
             detail: {
                 summary: "Article-scoped lore copilot",
                 description:
@@ -110,7 +183,7 @@ export function createCopilotRoute({
     )
     .post(
         "/article/stream",
-        async ({ body, set }) => {
+        async ({ body, session, set }) => {
             const parsed = ArticleCopilotRequestSchema.parse(body);
             const compactedRag = await compactRagContext(
                 portalChunksToRag(parsed.ragContext),
@@ -118,9 +191,56 @@ export function createCopilotRoute({
             );
             const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
 
+            // ── Session lifecycle (before SSE — errors return JSON) ──────
+            const userId = session!.user.id;
+            let loreSession;
+            if (parsed.sessionId) {
+                loreSession = await prisma.loreSession.findUnique({
+                    where: { id: parsed.sessionId },
+                });
+                if (!loreSession || loreSession.userId !== userId) {
+                    set.status = 404;
+                    return { error: "NOT_FOUND", message: "Session not found" };
+                }
+            } else {
+                loreSession = await prisma.loreSession.create({
+                    data: {
+                        userId,
+                        title: compactedRequest.currentNote.title,
+                        state: {},
+                        tokensAccumulated: 0,
+                    },
+                });
+            }
+
+            // Tier 3 compaction check
+            if (shouldCompact(loreSession)) {
+                try {
+                    await compactSession(loreSession);
+                    loreSession = await prisma.loreSession.findUniqueOrThrow({
+                        where: { id: loreSession.id },
+                    });
+                } catch (e) {
+                    rootLogger.warn("Session compaction skipped", { error: String(e) });
+                }
+            }
+
+            // Persist user message before streaming
+            await prisma.loreSessionMessage.create({
+                data: {
+                    sessionId: loreSession.id,
+                    role: "user",
+                    content: parsed.transcript.at(-1)?.content ?? "",
+                },
+            });
+
+            // ── SSE streaming ───────────────────────────────────────────
             set.headers["Content-Type"] = "text/event-stream";
             set.headers["Cache-Control"] = "no-cache";
             set.headers["Connection"] = "keep-alive";
+
+            const sessionId = loreSession.id;
+            let assistantContent = "";
 
             return new ReadableStream({
                 async start(controller) {
@@ -134,13 +254,18 @@ export function createCopilotRoute({
 
                         for await (const chunk of runArticleCopilotStream(compactedRequest)) {
                             if (chunk.type === "token") {
+                                assistantContent += chunk.content;
                                 send("token", { content: chunk.content });
                             } else if (chunk.type === "reasoning") {
                                 send("reasoning", { content: chunk.content });
                             } else if (chunk.type === "done") {
                                 try {
                                     const jsonParsed = JSON.parse(chunk.raw);
-                                    const validated = ArticleCopilotResponseSchema.parse(jsonParsed);
+                                    // Inject sessionId — the LLM response won't include it
+                                    const validated = ArticleCopilotResponseSchema.parse({
+                                        ...jsonParsed,
+                                        sessionId,
+                                    });
                                     const scoped = validateProposalScope(validated, compactedRequest);
                                     send("result", scoped);
                                 } catch (e) {
@@ -155,6 +280,25 @@ export function createCopilotRoute({
                                 send("error", { error: chunk.error, code: chunk.code });
                             }
                         }
+
+                        // After stream completes: persist assistant message + update tokens
+                        if (assistantContent) {
+                            const msgTokens = countTokens(assistantContent);
+                            await Promise.all([
+                                prisma.loreSessionMessage.create({
+                                    data: {
+                                        sessionId,
+                                        role: "assistant",
+                                        content: assistantContent,
+                                        tokenCount: msgTokens,
+                                    },
+                                }),
+                                prisma.loreSession.update({
+                                    where: { id: sessionId },
+                                    data: { tokensAccumulated: { increment: msgTokens } },
+                                }),
+                            ]);
+                        }
                     } catch (e) {
                         send("error", { error: e instanceof Error ? e.message : String(e) });
                     } finally {
@@ -164,14 +308,7 @@ export function createCopilotRoute({
             });
         },
         {
-            body: t.Object({
-                noteId: t.String(),
-                transcript: t.Array(ChatMessageBody),
-                currentNote: CopilotNoteContextBody,
-                linkedNotes: t.Array(CopilotNoteContextBody),
-                ragContext: t.Array(CopilotRagChunkBody),
-                writableTargetIds: t.Array(t.String()),
-            }),
+            body: ArticleCopilotBody,
             detail: {
                 summary: "Article copilot (streaming SSE)",
                 description: "Streaming variant of /copilot/article. Returns SSE events: status, token, reasoning, result, done, error.",

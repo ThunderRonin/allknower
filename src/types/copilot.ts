@@ -112,6 +112,7 @@ export type CopilotCitation = z.infer<typeof CopilotCitationSchema>;
 
 export const ArticleCopilotRequestSchema = z.object({
     noteId: z.string(),
+    sessionId: z.string().optional(),
     transcript: z.array(ChatMessageSchema),
     currentNote: CopilotNoteContextSchema,
     linkedNotes: z.array(CopilotNoteContextSchema),
@@ -121,6 +122,7 @@ export const ArticleCopilotRequestSchema = z.object({
 export type ArticleCopilotRequest = z.infer<typeof ArticleCopilotRequestSchema>;
 
 export const ArticleCopilotResponseSchema = z.object({
+    sessionId: z.string().optional(),
     assistantMessage: z.string(),
     citations: z.array(CopilotCitationSchema),
     proposal: CopilotProposalSchema.nullable(),
