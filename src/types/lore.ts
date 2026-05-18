@@ -510,7 +510,7 @@ export const LoreSessionStateSchema = z.object({
     /** 1. What the user is trying to accomplish this session */
     intent: z.string(),
     /** 2. Which entity types came up */
-    loreTypesInPlay: z.array(LoreEntityTypeSchema),
+    loreTypesInPlay: z.array(z.string()),
     /** 3. AllCodex note IDs created/updated this session */
     noteIdsModified: z.array(z.string()),
     /** 4. Things that failed and why */

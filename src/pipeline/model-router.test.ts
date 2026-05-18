@@ -4,7 +4,7 @@ import { mock } from "bun:test";
 mock.module("../env.ts", () => ({
     env: {
         USE_OPENROUTER_AUTO: "false",
-        BRAIN_DUMP_MODEL: "x-ai/grok-4.1-fast",
+        BRAIN_DUMP_MODEL: "x-ai/grok-4.3",
         BRAIN_DUMP_FALLBACK_1: "",
         BRAIN_DUMP_FALLBACK_2: "",
         BRAIN_DUMP_FALLBACK_3: "",
@@ -83,7 +83,7 @@ describe("getModelChain", () => {
 
     it("primary model is always first in array", () => {
         const chain = getModelChain("brain-dump");
-        expect(chain[0]).toBe("x-ai/grok-4.1-fast");
+        expect(chain[0]).toBe("x-ai/grok-4.3");
     });
 
     it('"compact" and "session-compact" use the same COMPACT_MODEL', () => {
