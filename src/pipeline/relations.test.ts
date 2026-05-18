@@ -57,6 +57,10 @@ mock.module("../etapi/client.ts", () => ({
     invalidateCredentialCache: mock(() => {}),
 }));
 
+mock.module("../rag/compact-context.ts", () => ({
+    compactRagContext: mock(async (chunks: unknown[]) => chunks),
+}));
+
 mock.module("../db/client.ts", () => ({
     default: {
         relationHistory: {

@@ -6,6 +6,7 @@
  */
 
 import { queryLore } from "../rag/lancedb.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
 import { callLLM } from "./prompt.ts";
 import { getNote, createRelation, type CreateRelationOptions, type EtapiCredentials } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
@@ -38,8 +39,10 @@ export async function suggestRelationsForNote(
         return [];
     }
 
-    const contextBlock = similar
-        .map((c) => `- ${c.noteTitle} (${c.noteId}): ${c.content.slice(0, 200)}`)
+    const compacted = await compactRagContext(similar, { task: "suggest" });
+
+    const contextBlock = compacted
+        .map((c) => `- ${c.noteTitle} (${c.noteId}): ${c.content}`)
         .join("\n");
 
     const context = `## Existing Lore\n${contextBlock}`;
