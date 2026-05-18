@@ -3,6 +3,7 @@ import { rateLimit } from "elysia-rate-limit";
 import { getAllCodexNotes, getNoteContent } from "../etapi/client.ts";
 import { callLLM } from "../pipeline/prompt.ts";
 import { queryLore } from "../rag/lancedb.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { env } from "../env.ts";
@@ -76,9 +77,10 @@ export function createConsistencyRoute({
             );
         } else {
             // Semantic sampling mode: use RAG probes to surface the most
-            // consistency-relevant lore entries instead of truncating everything.
-            const chunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
-            const sampled = chunks.map((chunk) => ({
+            // consistency-relevant lore entries, then compact to token budget.
+            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
+            const sampled = compacted.map((chunk) => ({
                 noteId: chunk.noteId,
                 title: chunk.noteTitle,
                 content: chunk.content,
@@ -92,6 +94,8 @@ export function createConsistencyRoute({
         }
 
         const loreSummaries = notes.map(({ noteId, title, content }) => {
+            // Explicit-noteIds path still needs bounding; compacted RAG chunks
+            // are already within token budget so the slice is a no-op for them.
             const excerpt = content.slice(0, MAX_NOTE_CHARS);
             return `## ${title} (${noteId})\n${excerpt}`;
         });
@@ -178,8 +182,9 @@ export function createConsistencyRoute({
                                 })
                             );
                         } else {
-                            const chunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
-                            const sampled = chunks.map((chunk) => ({
+                            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+                            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
+                            const sampled = compacted.map((chunk) => ({
                                 noteId: chunk.noteId,
                                 title: chunk.noteTitle,
                                 content: chunk.content,

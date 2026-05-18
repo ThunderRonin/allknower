@@ -4,6 +4,7 @@ import { requireAuthBypass } from "../../test/helpers/auth.ts";
 import { requestJson } from "../../test/helpers/http.ts";
 
 const queryLoreMock = mock(async (..._args: any[]) => [] as any[]);
+const compactRagContextMock = mock(async (chunks: any[]) => chunks);
 const getAllCodexNotesMock = mock(async (..._args: any[]) => [] as any[]);
 const getNoteContentMock = mock(async (..._args: any[]) => "");
 const invalidateCredentialCacheMock = mock(() => {});
@@ -30,6 +31,10 @@ mock.module("../plugins/auth-guard.ts", () => ({
 
 mock.module("../rag/lancedb.ts", () => ({
     queryLore: queryLoreMock,
+}));
+
+mock.module("../rag/compact-context.ts", () => ({
+    compactRagContext: compactRagContextMock,
 }));
 
 mock.module("../etapi/client.ts", () => ({
@@ -72,6 +77,7 @@ const app = new Elysia().use(consistencyRoute);
 describe("Consistency routes", () => {
     beforeEach(() => {
         queryLoreMock.mockClear();
+        compactRagContextMock.mockClear();
         getAllCodexNotesMock.mockClear();
         getNoteContentMock.mockClear();
         callLLMMock.mockClear();
@@ -93,6 +99,11 @@ describe("Consistency routes", () => {
         expect(status).toBe(200);
         expect(json).toEqual({ issues: [], summary: "All consistent." });
         expect(queryLoreMock).toHaveBeenCalledTimes(1);
+        expect(compactRagContextMock).toHaveBeenCalledTimes(1);
+        expect(compactRagContextMock).toHaveBeenCalledWith(
+            expect.arrayContaining([expect.objectContaining({ score: 0.99 })]),
+            { task: "consistency" },
+        );
         expect(callLLMMock).toHaveBeenCalledTimes(1);
 
         const [, , task, context, options] = callLLMMock.mock.calls[0] as unknown as [
