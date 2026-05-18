@@ -16,7 +16,9 @@ export class IntegrationNotConnectedError extends Error {
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-    return baseUrl.replace(/\/+$/, "");
+    let url = baseUrl;
+    while (url.endsWith("/")) url = url.slice(0, -1);
+    return url;
 }
 
 export async function connectAllCodexIntegration(

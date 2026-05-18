@@ -75,10 +75,9 @@ export async function probeAllCodex(credentials?: EtapiCredentials): Promise<{ o
 }
 
 function normalizeCredentials(credentials: EtapiCredentials): { url: string; token: string } {
-    return {
-        url: credentials.baseUrl.replace(/\/+$/, ""),
-        token: credentials.token,
-    };
+    let url = credentials.baseUrl;
+    while (url.endsWith("/")) url = url.slice(0, -1);
+    return { url, token: credentials.token };
 }
 
 async function resolveCredentials(credentials?: EtapiCredentials): Promise<{ url: string; token: string }> {

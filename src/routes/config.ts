@@ -10,7 +10,7 @@ import { rootLogger } from "../logger.ts";
 
 function isDevBranch(): boolean {
     try {
-        return execFileSync("git", ["branch", "--show-current"], { encoding: "utf-8" }).trim() === "dev";
+        return execFileSync("git", ["branch", "--show-current"], { encoding: "utf-8" }).trim() === "dev"; // NOSONAR — git resolved via system PATH
     } catch {
         return false;
     }

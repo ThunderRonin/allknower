@@ -177,7 +177,7 @@ export function createConsistencyRoute({
                             notes = await Promise.all(
                                 etapiNotes.map(async (note) => {
                                     const content = await getNoteContent(note.noteId, credentials).catch(() => "");
-                                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+                                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); // NOSONAR — [^>]+ is non-backtracking
                                     return { noteId: note.noteId, title: note.title, content: plain };
                                 })
                             );
