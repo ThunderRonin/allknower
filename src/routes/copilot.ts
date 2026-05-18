@@ -3,8 +3,11 @@ import { rateLimit } from "elysia-rate-limit";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
 import { ArticleCopilotRequestSchema, ArticleCopilotResponseSchema } from "../types/copilot.ts";
+import type { CopilotRagChunk } from "../types/copilot.ts";
 import { runArticleCopilotTurn, runArticleCopilotStream, validateProposalScope } from "../pipeline/article-copilot.ts";
 import { sseEncode } from "../pipeline/stream-types.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
+import type { RagChunk } from "../types/lore.ts";
 
 const ChatMessageBody = t.Object({
     role: t.Union([t.Literal("user"), t.Literal("assistant")]),
@@ -35,6 +38,26 @@ const CopilotRagChunkBody = t.Object({
     score: t.Number(),
 });
 
+/** Adapt Portal's CopilotRagChunk[] → AllKnower RagChunk[] for compaction. */
+function portalChunksToRag(chunks: CopilotRagChunk[]): RagChunk[] {
+    return chunks.map((c) => ({
+        noteId: c.noteId,
+        noteTitle: c.title,
+        content: c.excerpt,
+        score: c.score,
+    }));
+}
+
+/** Convert compacted RagChunk[] back to Portal's CopilotRagChunk shape. */
+function ragToPortalChunks(chunks: RagChunk[]): CopilotRagChunk[] {
+    return chunks.map((c) => ({
+        noteId: c.noteId,
+        title: c.noteTitle,
+        excerpt: c.content,
+        score: c.score,
+    }));
+}
+
 type CopilotRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
@@ -61,7 +84,12 @@ export function createCopilotRoute({
         "/article",
         async ({ body }) => {
             const parsed = ArticleCopilotRequestSchema.parse(body);
-            return runArticleCopilotTurn(parsed);
+            const compactedRag = await compactRagContext(
+                portalChunksToRag(parsed.ragContext),
+                { task: "article-copilot" },
+            );
+            const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
+            return runArticleCopilotTurn(compactedRequest);
         },
         {
             body: t.Object({
@@ -84,6 +112,11 @@ export function createCopilotRoute({
         "/article/stream",
         async ({ body, set }) => {
             const parsed = ArticleCopilotRequestSchema.parse(body);
+            const compactedRag = await compactRagContext(
+                portalChunksToRag(parsed.ragContext),
+                { task: "article-copilot" },
+            );
+            const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
 
             set.headers["Content-Type"] = "text/event-stream";
             set.headers["Cache-Control"] = "no-cache";
@@ -99,7 +132,7 @@ export function createCopilotRoute({
                     try {
                         send("status", { stage: "llm", message: "Generating response..." });
 
-                        for await (const chunk of runArticleCopilotStream(parsed)) {
+                        for await (const chunk of runArticleCopilotStream(compactedRequest)) {
                             if (chunk.type === "token") {
                                 send("token", { content: chunk.content });
                             } else if (chunk.type === "reasoning") {
@@ -108,7 +141,7 @@ export function createCopilotRoute({
                                 try {
                                     const jsonParsed = JSON.parse(chunk.raw);
                                     const validated = ArticleCopilotResponseSchema.parse(jsonParsed);
-                                    const scoped = validateProposalScope(validated, parsed);
+                                    const scoped = validateProposalScope(validated, compactedRequest);
                                     send("result", scoped);
                                 } catch (e) {
                                     send("error", { error: e instanceof Error ? e.message : "Invalid copilot response" });
