@@ -1,11 +1,7 @@
 import type { RagChunk } from "../types/lore.ts";
 import { callWithFallback, callModelStream, type TaskType } from "./model-router.ts";
 import type { StreamChunk } from "./stream-types.ts";
-import { countTokens } from "../utils/tokens.ts";
-import { deduplicateChunks } from "../rag/chunk-dedup.ts";
-import { compactChunks } from "../rag/chunk-compactor.ts";
-import { env } from "../env.ts";
-import { rootLogger } from "../logger.ts";
+import { compactRagContext } from "../rag/compact-context.ts";
 
 /**
  * Prompt builder and LLM caller for AllKnower pipelines.
@@ -194,44 +190,8 @@ export async function buildBrainDumpPrompt(
     rawText: string,
     ragContext: RagChunk[]
 ): Promise<{ system: string; context: string; user: string; admittedChunks: RagChunk[] }> {
-    // Tier 1.5: deduplicate near-identical chunks
-    const dedupedContext = deduplicateChunks(ragContext);
-
-    // Tier 1: budget enforcement — admit chunks in relevance order until budget full
-    const MAX_RAG_TOKENS = env.RAG_CONTEXT_MAX_TOKENS;
-    let budgetUsed = 0;
-    const admittedChunks: RagChunk[] = [];
-
-    for (const chunk of dedupedContext) {
-        const chunkTokens = countTokens(chunk.content);
-        if (budgetUsed + chunkTokens <= MAX_RAG_TOKENS) {
-            admittedChunks.push(chunk);
-            budgetUsed += chunkTokens;
-        } else if (budgetUsed >= MAX_RAG_TOKENS) {
-            break; // hard stop once full
-        }
-        // else: skip this oversized chunk but continue looking for smaller ones
-    }
-
-    rootLogger.info("RAG budget summary", {
-        totalChunks: ragContext.length,
-        afterDedup: dedupedContext.length,
-        admitted: admittedChunks.length,
-        budgetUsed,
-        MAX_RAG_TOKENS,
-    });
-
-    // Tier 2: summarize oversized chunks (parallel, failure-isolated, concurrency-limited)
-    const compactedChunks = await compactChunks(admittedChunks);
-
-    // Recalculate budget after compaction — compacted chunks free up space
-    const postCompactBudget = compactedChunks.reduce(
-        (sum, c) => sum + countTokens(c.content), 0
-    );
-    const freed = budgetUsed - postCompactBudget;
-    if (freed > 0) {
-        rootLogger.info("Tier 2 freed tokens", { freed, postCompactBudget });
-    }
+    // Tiers 1.5 → 1 → 2: dedup, budget enforcement, optional summarization
+    const compactedChunks = await compactRagContext(ragContext, { task: "brain-dump" });
 
     const contextBlock =
         compactedChunks.length > 0
