@@ -232,9 +232,10 @@ export function createImportRoute({ requireAuthImpl = requireAuth }: { requireAu
                 });
                 return result;
             } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                rootLogger.error("azgaar import route: unexpected error", { error: msg });
-                return new Response(JSON.stringify({ error: msg, code: "IMPORT_ERROR" }), {
+                rootLogger.error("azgaar import route: unexpected error", {
+                    error: e instanceof Error ? e.message : String(e),
+                });
+                return new Response(JSON.stringify({ error: "Import failed unexpectedly.", code: "IMPORT_ERROR" }), {
                     status: 500, headers: { "Content-Type": "application/json" },
                 });
             }

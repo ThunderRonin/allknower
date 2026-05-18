@@ -4,6 +4,7 @@ import { indexNote, fullReindex, reindexStaleNotes } from "../rag/indexer.ts";
 import prisma from "../db/client.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import { rootLogger } from "../logger.ts";
 
 export const ragRoute = new Elysia({ prefix: "/rag" })
     .use(requireAuth)
@@ -35,11 +36,12 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 const missingNote = /missing note|not found|\b404\b/i.test(message);
+                rootLogger.error("rag reindex failed", { noteId: params.noteId, error: message });
 
                 return new Response(
                     JSON.stringify({
                         error: missingNote ? "NOTE_NOT_FOUND" : "REINDEX_FAILED",
-                        message,
+                        message: missingNote ? "Note not found." : "Reindex failed.",
                         noteId: params.noteId,
                     }),
                     {
