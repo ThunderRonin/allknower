@@ -341,6 +341,11 @@ export async function importAzgaarMap(
             const cultureName = burg.culture != null ? cultureNameById.get(burg.culture) : undefined;
             if (cultureName) labels.push(["culture", cultureName]);
 
+            // Pixel coordinates from the FMG canvas — stored as #geolocation for map display
+            if (burg.x !== undefined && burg.y !== undefined) {
+                labels.push(["geolocation", `${Math.round(burg.x)}, ${Math.round(burg.y)}`]);
+            }
+
             const traits: string[] = [];
             if (isCapital) traits.push("capital");
             if (isPort) traits.push("port");
@@ -363,6 +368,17 @@ export async function importAzgaarMap(
                 skipDuplicates,
                 opts.credentials
             );
+        }
+
+        // Store map dimensions on the parent note so Portal's MapViewer can size
+        // the canvas.  Only tag a real parent folder — never pollute the root note.
+        if (parentNoteId !== "root" && burgs.length > 0) {
+            const maxX = Math.max(...burgs.map((b) => b.x ?? 0));
+            const maxY = Math.max(...burgs.map((b) => b.y ?? 0));
+            if (maxX > 0 && maxY > 0) {
+                await tagNote(parentNoteId, "mapWidth", String(Math.ceil(maxX * 1.1)), opts.credentials);
+                await tagNote(parentNoteId, "mapHeight", String(Math.ceil(maxY * 1.1)), opts.credentials);
+            }
         }
     }
 
