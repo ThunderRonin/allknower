@@ -1,0 +1,22 @@
+{
+    "notes": [
+        {
+            "noteId": "note-1",
+            "title": "Aldric",
+            "type": "text",
+            "content": "<p>Aldric is the king of Valorheim.</p>",
+            "attributes": [
+                { "type": "label", "name": "loreType", "value": "character" }
+            ]
+        },
+        {
+            "noteId": "note-2",
+            "title": "Valorheim",
+            "type": "text",
+            "content": "<p>Valorheim is a northern kingdom.</p>",
+            "attributes": [
+                { "type": "label", "name": "loreType", "value": "location" }
+            ]
+        }
+    ]
+}
