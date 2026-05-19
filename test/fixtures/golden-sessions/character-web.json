@@ -1,0 +1,39 @@
+{
+    "id": "character-web",
+    "description": "User builds interconnected character relationships: family, rivals, mentors",
+    "turns": [
+        { "role": "user", "content": "Create a character: Kael Stormborn, a 28-year-old human ranger who patrols the Whispering Woods." },
+        { "role": "assistant", "content": "Created Kael Stormborn, 28, human ranger, Whispering Woods patrol." },
+        { "role": "user", "content": "His mother is Sera Stormborn, a retired knight who lost her left arm in the Siege of Ashvale." },
+        { "role": "assistant", "content": "Created Sera Stormborn, Kael's mother, retired knight, lost left arm at Siege of Ashvale." },
+        { "role": "user", "content": "His father Darius Stormborn died when Kael was 10. He was poisoned by a political rival named Lord Cassian Vex." },
+        { "role": "assistant", "content": "Created Darius Stormborn (deceased) and Lord Cassian Vex. Vex poisoned Darius." },
+        { "role": "user", "content": "Kael has a twin sister named Lyra who is a healer at the Temple of Dawn. They're very close." },
+        { "role": "assistant", "content": "Created Lyra Stormborn, Kael's twin sister, healer at Temple of Dawn." },
+        { "role": "user", "content": "Kael's mentor is an old elf named Thandril who taught him tracking and survival. Thandril is 400 years old." },
+        { "role": "assistant", "content": "Created Thandril, elf, 400 years old, Kael's mentor in tracking and survival." },
+        { "role": "user", "content": "Kael has a wolf companion named Frost. Frost has a distinctive scar across his muzzle from a bear fight." },
+        { "role": "assistant", "content": "Created Frost, Kael's wolf companion, muzzle scar from bear fight." },
+        { "role": "user", "content": "Lord Cassian Vex is now the governor of Ashvale. He has a daughter named Elise who is secretly in love with Kael." },
+        { "role": "assistant", "content": "Updated Vex as Ashvale governor. Created Elise Vex, secret love interest for Kael." },
+        { "role": "user", "content": "Kael's best friend is a dwarf blacksmith named Brogan Deepforge. Brogan made Kael's signature weapon: a bow called Whisperwind." },
+        { "role": "assistant", "content": "Created Brogan Deepforge, dwarf blacksmith, crafted Whisperwind bow for Kael." },
+        { "role": "user", "content": "There's an ongoing threat: a group called the Hollowed who are corrupted forest spirits. Kael has been tracking them for 3 years." },
+        { "role": "assistant", "content": "Created the Hollowed, corrupted forest spirits. Kael tracking them for 3 years." },
+        { "role": "user", "content": "The leader of the Hollowed is a fallen druid named Morwen who was once Thandril's apprentice." },
+        { "role": "assistant", "content": "Created Morwen, fallen druid, ex-apprentice of Thandril, leads the Hollowed." }
+    ],
+    "facts": [
+        { "id": "f1", "category": "character", "fact": "Kael Stormborn is 28 years old, human ranger in Whispering Woods" },
+        { "id": "f2", "category": "family", "fact": "Mother Sera lost left arm at Siege of Ashvale" },
+        { "id": "f3", "category": "family", "fact": "Father Darius was poisoned by Lord Cassian Vex when Kael was 10" },
+        { "id": "f4", "category": "family", "fact": "Twin sister Lyra is a healer at Temple of Dawn" },
+        { "id": "f5", "category": "mentor", "fact": "Thandril is a 400-year-old elf mentor" },
+        { "id": "f6", "category": "companion", "fact": "Wolf companion Frost has muzzle scar from bear fight" },
+        { "id": "f7", "category": "conflict", "fact": "Cassian Vex is now governor of Ashvale, has daughter Elise" },
+        { "id": "f8", "category": "relationship", "fact": "Elise Vex is secretly in love with Kael" },
+        { "id": "f9", "category": "ally", "fact": "Brogan Deepforge crafted Whisperwind bow for Kael" },
+        { "id": "f10", "category": "threat", "fact": "The Hollowed are corrupted forest spirits, Kael tracking for 3 years" },
+        { "id": "f11", "category": "villain", "fact": "Morwen leads the Hollowed, was Thandril's former apprentice" }
+    ]
+}
