@@ -3,6 +3,7 @@ import { mock } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Elysia from "elysia";
 import "./mock-llm.ts"; // registers LLM mocks as side effect
 
 const DIMS = 4;
@@ -55,6 +56,17 @@ mock.module("../../src/integrations/allcodex.ts", () => ({
     },
 }));
 
+mock.module("../../src/plugins/auth-guard.ts", () => ({
+    requireAuth: new Elysia({ name: "allknower/require-auth" })
+        .resolve({ as: "scoped" }, () => ({
+            session: {
+                session: { id: "test-session" },
+                user: { id: "test-user", email: "test@example.com" },
+            },
+        }))
+        .onBeforeHandle({ as: "scoped" }, () => undefined),
+}));
+
 mock.module("../../src/bootstrap/index.ts", () => ({
     getBootstrapStatus: mock(() => ({
         ran: true,
@@ -73,6 +85,7 @@ mock.module("../../src/env.ts", () => ({
         RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: 600,
         OPENROUTER_API_KEY: "test-key",
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+        RERANK_MODEL: "test/rerank",
         EMBEDDING_CLOUD: "test/model",
         DATABASE_URL: process.env.DATABASE_URL,
         NODE_ENV: "test",
