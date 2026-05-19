@@ -26,7 +26,7 @@ const DEFAULT_TASK_RAG_BUDGETS: Partial<Record<TaskType, number>> = {
 };
 
 function getTaskBudget(task?: TaskType): number {
-    if (task && DEFAULT_TASK_RAG_BUDGETS[task]) return DEFAULT_TASK_RAG_BUDGETS[task]!;
+    if (task && DEFAULT_TASK_RAG_BUDGETS[task]) return DEFAULT_TASK_RAG_BUDGETS[task];
     return env.RAG_CONTEXT_MAX_TOKENS;
 }
 

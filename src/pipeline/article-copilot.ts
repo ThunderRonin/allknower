@@ -196,7 +196,7 @@ export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Pr
             type: "json_schema",
             jsonSchema: {
                 name: ARTICLE_COPILOT_JSON_SCHEMA.name,
-                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema as Record<string, unknown>,
+                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema,
                 strict: true,
             },
         },
@@ -226,7 +226,7 @@ export async function* runArticleCopilotStream(
             type: "json_schema",
             jsonSchema: {
                 name: ARTICLE_COPILOT_JSON_SCHEMA.name,
-                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema as Record<string, unknown>,
+                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema,
                 strict: true,
             },
         },
