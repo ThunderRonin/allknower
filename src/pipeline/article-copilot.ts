@@ -185,6 +185,13 @@ function buildCopilotMessages(input: ArticleCopilotRequest): Array<{ role: "syst
     ];
 }
 
+/**
+ * Runs a single article-copilot turn: calls the routed model with a strict JSON schema, parses and validates the model output, and enforces proposal scope rules against the request.
+ *
+ * @param rawInput - The article copilot request containing the current note, linked notes, RAG context, writable target IDs, and transcript
+ * @returns The validated `ArticleCopilotResponse` produced by the model
+ * @throws Error if the model returns invalid JSON that cannot be parsed
+ */
 export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Promise<ArticleCopilotResponse> {
     const input = ArticleCopilotRequestSchema.parse(rawInput);
     const messages = buildCopilotMessages(input);
@@ -196,7 +203,7 @@ export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest): Pr
             type: "json_schema",
             jsonSchema: {
                 name: ARTICLE_COPILOT_JSON_SCHEMA.name,
-                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema as Record<string, unknown>,
+                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema,
                 strict: true,
             },
         },
@@ -226,7 +233,7 @@ export async function* runArticleCopilotStream(
             type: "json_schema",
             jsonSchema: {
                 name: ARTICLE_COPILOT_JSON_SCHEMA.name,
-                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema as Record<string, unknown>,
+                schema: ARTICLE_COPILOT_JSON_SCHEMA.schema,
                 strict: true,
             },
         },

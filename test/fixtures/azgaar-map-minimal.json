@@ -1,0 +1,22 @@
+{
+    "mapData": {
+        "info": { "mapName": "Valorheim", "version": "1.0" },
+        "settings": { "mapName": "Valorheim" },
+        "pack": {
+            "states": [
+                { "i": 0 },
+                { "i": 1, "name": "Valorheim", "color": "#4a7c59" }
+            ],
+            "burgs": [
+                { "i": 0 },
+                { "i": 1, "name": "Valorheim City", "state": 1, "population": 5 }
+            ],
+            "religions": [],
+            "cultures": [
+                { "i": 0 },
+                { "i": 1, "name": "Northern Culture", "color": "#c4a882" }
+            ]
+        },
+        "notes": []
+    }
+}

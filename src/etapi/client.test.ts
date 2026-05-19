@@ -5,6 +5,8 @@ mock.module("../env.ts", () => ({
     env: {
         ALLCODEX_URL: "http://localhost:8080",
         ALLCODEX_ETAPI_TOKEN: "test-etapi-token",
+        DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+        NODE_ENV: "test",
     },
 }));
 

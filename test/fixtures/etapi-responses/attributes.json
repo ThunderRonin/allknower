@@ -1,0 +1,9 @@
+{
+    "attributeId": "attr-new123",
+    "noteId": "note-abc123",
+    "type": "label",
+    "name": "loreType",
+    "value": "character",
+    "position": 10,
+    "isInheritable": false
+}

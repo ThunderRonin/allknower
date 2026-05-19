@@ -1,0 +1,26 @@
+{
+    "noteId": "note-abc123",
+    "title": "Aldric",
+    "type": "text",
+    "mime": "text/html",
+    "isProtected": false,
+    "dateCreated": "2026-01-15 12:00:00.000+0000",
+    "dateModified": "2026-01-16 08:30:00.000+0000",
+    "utcDateCreated": "2026-01-15 12:00:00.000Z",
+    "utcDateModified": "2026-01-16 08:30:00.000Z",
+    "parentNoteIds": ["root"],
+    "childNoteIds": [],
+    "parentBranchIds": ["branch-1"],
+    "childBranchIds": [],
+    "attributes": [
+        {
+            "attributeId": "attr-1",
+            "noteId": "note-abc123",
+            "type": "label",
+            "name": "loreType",
+            "value": "character",
+            "position": 10,
+            "isInheritable": false
+        }
+    ]
+}

@@ -1,0 +1,22 @@
+{
+    "results": [
+        {
+            "noteId": "note-abc123",
+            "title": "Aldric",
+            "type": "text",
+            "mime": "text/html",
+            "isProtected": false,
+            "attributes": [
+                {
+                    "attributeId": "attr-1",
+                    "noteId": "note-abc123",
+                    "type": "label",
+                    "name": "loreType",
+                    "value": "character",
+                    "position": 10,
+                    "isInheritable": false
+                }
+            ]
+        }
+    ]
+}

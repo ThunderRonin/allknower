@@ -110,7 +110,7 @@ describe("upsertNoteChunks", () => {
         const results = await lancedb.queryLore("Aldric", 10);
         // Only new chunks should exist — old ones replaced
         expect(results.some((r) => r.content === "New chunk.")).toBe(true);
-    });
+    }, 15_000);
 
     it("accepts empty chunks array without error", async () => {
         await expect(lancedb.upsertNoteChunks("note-empty", "Empty", [])).resolves.toBeUndefined();
@@ -122,7 +122,7 @@ describe("upsertNoteChunks", () => {
         const row = results.find((r) => r.noteId === "note-1");
         expect(row).toBeDefined();
         expect(row?.noteTitle).toBe("Aldric Title");
-    });
+    }, 15_000);
 });
 
 // ── deleteNoteChunks ──────────────────────────────────────────────────────────

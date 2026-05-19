@@ -25,8 +25,14 @@ const DEFAULT_TASK_RAG_BUDGETS: Partial<Record<TaskType, number>> = {
     "gap-detect": 2000,
 };
 
+/**
+ * Selects the token budget for a given task.
+ *
+ * @param task - The task type to look up a per-task RAG token budget; if omitted or not present in the per-task map, the environment default is used
+ * @returns The per-task token budget when available, otherwise the environment's RAG context max tokens
+ */
 function getTaskBudget(task?: TaskType): number {
-    if (task && DEFAULT_TASK_RAG_BUDGETS[task]) return DEFAULT_TASK_RAG_BUDGETS[task]!;
+    if (task && DEFAULT_TASK_RAG_BUDGETS[task]) return DEFAULT_TASK_RAG_BUDGETS[task];
     return env.RAG_CONTEXT_MAX_TOKENS;
 }
 

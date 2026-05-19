@@ -6,6 +6,7 @@ import { queryLore } from "../rag/lancedb.ts";
 import { compactRagContext } from "../rag/compact-context.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import type { AllCodexCredentials } from "../integrations/allcodex.ts";
 import { env } from "../env.ts";
 import { CONSISTENCY_SYSTEM } from "../pipeline/prompts/consistency.ts";
 import { CONSISTENCY_JSON_SCHEMA } from "../pipeline/schemas/llm-response-schemas.ts";
@@ -30,10 +31,122 @@ const MAX_NOTE_CHARS = 600;
 const CONSISTENCY_TIMEOUT_MS = 120_000;
 const CONSISTENCY_MAX_TOKENS = 2000;
 
+type NoteEntry = { noteId: string; title: string; content: string };
+
+/**
+ * Resolve a list of lore notes to be used for a consistency check.
+ *
+ * If `noteIds` is provided, returns those notes with plain-text content; otherwise returns a semantically sampled set of relevant notes.
+ *
+ * @param noteIds - Optional explicit list of note IDs to resolve; when omitted the function performs semantic sampling.
+ * @param credentials - Credentials used to access codex/knowledge APIs.
+ * @returns An array of `NoteEntry` objects each containing `noteId`, `title`, and plain-text `content`.
+ */
+async function resolveConsistencyNotes(
+    noteIds: string[] | undefined,
+    credentials: AllCodexCredentials,
+): Promise<NoteEntry[]> {
+    if (noteIds?.length) {
+        const search = noteIds.map((id) => `#noteId=${id}`).join(" OR ");
+        const etapiNotes = await getAllCodexNotes(search, credentials);
+        return Promise.all(
+            etapiNotes.map(async (note) => {
+                const content = await getNoteContent(note.noteId, credentials).catch(() => "");
+                const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); // NOSONAR — [^>]+ is non-backtracking
+                return { noteId: note.noteId, title: note.title, content: plain };
+            })
+        );
+    }
+
+    const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+    const compacted = await compactRagContext(rawChunks, { task: "consistency" });
+    return compacted.map((chunk) => ({
+        noteId: chunk.noteId,
+        title: chunk.noteTitle,
+        content: chunk.content,
+    }));
+}
+
+/**
+ * Constructs the prompt context containing formatted lore entries for the LLM.
+ *
+ * Each note becomes a section headed with `## <title> (<noteId>)` followed by an excerpt of its
+ * content.
+ *
+ * @param notes - The lore note entries to include in the prompt context.
+ * @returns A single string starting with `## Lore Entries` and, for each note, a section with the
+ * note's title and id and an excerpt of its content truncated to MAX_NOTE_CHARS.
+ */
+function buildConsistencyPromptContext(notes: NoteEntry[]): string {
+    const loreSummaries = notes.map(({ noteId, title, content }) => {
+        const excerpt = content.slice(0, MAX_NOTE_CHARS);
+        return `## ${title} (${noteId})\n${excerpt}`;
+    });
+    return `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
+}
+
+/**
+ * Parse and validate a raw JSON response produced by the LLM for a consistency check.
+ *
+ * @param raw - Raw JSON string returned by the LLM
+ * @returns The validated consistency response object when parsing and schema validation succeed; otherwise a fallback object with `issues: []` and a `summary` explaining the failure
+ */
+function parseConsistencyResponse(raw: string): unknown {
+    try {
+        const parsed = JSON.parse(raw);
+        const validated = ConsistencyResponseSchema.safeParse(parsed);
+        if (validated.success) return validated.data;
+        rootLogger.warn("Consistency response failed validation", {
+            errors: validated.error.issues,
+        });
+        return { issues: [], summary: "LLM response failed validation." };
+    } catch {
+        return { issues: [], summary: "Failed to parse consistency check response." };
+    }
+}
+
+/**
+ * Performs a consistency check over resolved lore notes and returns the parsed result.
+ *
+ * @param noteIds - Optional list of note IDs to check; when omitted, a semantic sampling of notes is used.
+ * @param credentials - Credentials used to access codex and RAG data sources.
+ * @returns The consistency check result object containing `issues` (array) and `summary` (string). If no notes are found, returns `{ issues: [], summary: "No lore notes found to check." }`.
+ */
+async function runConsistencyCheck(
+    noteIds: string[] | undefined,
+    credentials: AllCodexCredentials,
+): Promise<unknown> {
+    const notes = await resolveConsistencyNotes(noteIds, credentials);
+
+    if (notes.length === 0) {
+        return { issues: [], summary: "No lore notes found to check." };
+    }
+
+    const context = buildConsistencyPromptContext(notes);
+    const { raw } = await callLLM(CONSISTENCY_SYSTEM, "Check these lore entries for consistency issues.", "consistency", context, {
+        jsonSchema: CONSISTENCY_JSON_SCHEMA,
+        timeoutMs: CONSISTENCY_TIMEOUT_MS,
+        maxTokens: CONSISTENCY_MAX_TOKENS,
+    });
+
+    return parseConsistencyResponse(raw);
+}
+
 type ConsistencyRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
 
+/**
+ * Create an Elysia router exposing endpoints to run lore consistency checks.
+ *
+ * The router is mounted under the `/consistency` prefix, enforces authentication,
+ * applies AI-specific rate limiting (429 JSON error on limit), and exposes:
+ * - POST /check: runs a consistency check and returns the aggregated result as JSON.
+ * - POST /check/stream: runs a consistency check and streams SSE events (`status`, `result`, `done`, `error`) for progress and outcome.
+ *
+ * @param requireAuthImpl - Optional authentication middleware to apply to the router. Defaults to the built-in `requireAuth`.
+ * @returns An Elysia application instance configured with the consistency routes and middleware.
+ */
 export function createConsistencyRoute({
     requireAuthImpl = requireAuth,
 }: ConsistencyRouteDeps = {}) {
@@ -56,76 +169,7 @@ export function createConsistencyRoute({
     "/check",
     async ({ body, session }) => {
         const credentials = await resolveAllCodexCredentials(session!.user.id);
-        type NoteEntry = { noteId: string; title: string; content: string };
-        let notes: NoteEntry[];
-
-        if (body.noteIds?.length) {
-            // Explicit mode: fetch requested notes and pass full content
-            const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
-            const etapiNotes = await getAllCodexNotes(search, credentials);
-
-            if (etapiNotes.length === 0) {
-                return { issues: [], summary: "No lore notes found to check." };
-            }
-
-            notes = await Promise.all(
-                etapiNotes.map(async (note) => {
-                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
-                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-                    return { noteId: note.noteId, title: note.title, content: plain };
-                })
-            );
-        } else {
-            // Semantic sampling mode: use RAG probes to surface the most
-            // consistency-relevant lore entries, then compact to token budget.
-            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
-            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
-            const sampled = compacted.map((chunk) => ({
-                noteId: chunk.noteId,
-                title: chunk.noteTitle,
-                content: chunk.content,
-            }));
-
-            if (sampled.length === 0) {
-                return { issues: [], summary: "No lore notes found to check." };
-            }
-
-            notes = sampled;
-        }
-
-        const loreSummaries = notes.map(({ noteId, title, content }) => {
-            // Explicit-noteIds path still needs bounding; compacted RAG chunks
-            // are already within token budget so the slice is a no-op for them.
-            const excerpt = content.slice(0, MAX_NOTE_CHARS);
-            return `## ${title} (${noteId})\n${excerpt}`;
-        });
-
-        const context = `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
-        const user = `Check these lore entries for consistency issues.`;
-
-        const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
-            jsonSchema: CONSISTENCY_JSON_SCHEMA,
-            timeoutMs: CONSISTENCY_TIMEOUT_MS,
-            maxTokens: CONSISTENCY_MAX_TOKENS,
-        });
-
-        let result: unknown;
-        try {
-            const parsed = JSON.parse(raw);
-            const validated = ConsistencyResponseSchema.safeParse(parsed);
-            if (validated.success) {
-                result = validated.data;
-            } else {
-                rootLogger.warn("Consistency response failed validation", {
-                    errors: validated.error.issues,
-                });
-                result = { issues: [], summary: "LLM response failed validation." };
-            }
-        } catch {
-            result = { issues: [], summary: "Failed to parse consistency check response." };
-        }
-
-        return result;
+        return runConsistencyCheck(body.noteIds, credentials);
     },
     {
         body: t.Object({
@@ -159,77 +203,7 @@ export function createConsistencyRoute({
 
                     try {
                         send("status", { stage: "analyze", message: "Analyzing notes..." });
-
-                        type NoteEntry = { noteId: string; title: string; content: string };
-                        let notes: NoteEntry[];
-
-                        if (body.noteIds?.length) {
-                            const search = body.noteIds.map((id) => `#noteId=${id}`).join(" OR ");
-                            const etapiNotes = await getAllCodexNotes(search, credentials);
-
-                            if (etapiNotes.length === 0) {
-                                send("result", { issues: [], summary: "No lore notes found to check." });
-                                send("done", {});
-                                controller.close();
-                                return;
-                            }
-
-                            notes = await Promise.all(
-                                etapiNotes.map(async (note) => {
-                                    const content = await getNoteContent(note.noteId, credentials).catch(() => "");
-                                    const plain = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); // NOSONAR — [^>]+ is non-backtracking
-                                    return { noteId: note.noteId, title: note.title, content: plain };
-                                })
-                            );
-                        } else {
-                            const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
-                            const compacted = await compactRagContext(rawChunks, { task: "consistency" });
-                            const sampled = compacted.map((chunk) => ({
-                                noteId: chunk.noteId,
-                                title: chunk.noteTitle,
-                                content: chunk.content,
-                            }));
-
-                            if (sampled.length === 0) {
-                                send("result", { issues: [], summary: "No lore notes found to check." });
-                                send("done", {});
-                                controller.close();
-                                return;
-                            }
-
-                            notes = sampled;
-                        }
-
-                        const loreSummaries = notes.map(({ noteId, title, content }) => {
-                            const excerpt = content.slice(0, MAX_NOTE_CHARS);
-                            return `## ${title} (${noteId})\n${excerpt}`;
-                        });
-
-                        const context = `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
-                        const user = `Check these lore entries for consistency issues.`;
-
-                        const { raw } = await callLLM(CONSISTENCY_SYSTEM, user, "consistency", context, {
-                            jsonSchema: CONSISTENCY_JSON_SCHEMA,
-                            timeoutMs: CONSISTENCY_TIMEOUT_MS,
-                            maxTokens: CONSISTENCY_MAX_TOKENS,
-                        });
-
-                        let result: unknown;
-                        try {
-                            const parsed = JSON.parse(raw);
-                            const validated = ConsistencyResponseSchema.safeParse(parsed);
-                            if (validated.success) {
-                                result = validated.data;
-                            } else {
-                                rootLogger.warn("Consistency stream response failed validation", {
-                                    errors: validated.error.issues,
-                                });
-                                result = { issues: [], summary: "LLM response failed validation." };
-                            }
-                        } catch {
-                            result = { issues: [], summary: "Failed to parse consistency check response." };
-                        }
-
+                        const result = await runConsistencyCheck(body.noteIds, credentials);
                         send("result", result);
                         send("done", {});
                     } catch (e) {

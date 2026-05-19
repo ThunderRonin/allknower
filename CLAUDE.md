@@ -40,15 +40,62 @@ bun typecheck              # tsc --noEmit only
 ### Running Tests
 
 ```bash
-bun run check              # canonical CI command — typecheck + all test groups
-bun test test/             # unit tests (test/ directory)
+bun run check              # canonical CI command — typecheck + all test groups + E2E
+bun test test/*.test.ts test/unit/ test/integration/   # unit + integration (excludes E2E)
+bun run test:e2e           # E2E tests only (each file isolated)
 bun test src/etapi/        # ETAPI client tests
 bun test src/pipeline/parser.test.ts   # each pipeline file individually
 bun test src/routes/       # route tests
 bun test src/rag/indexer.test.ts       # each rag file individually
 ```
 
+**Never run `bun test test/` (recursive)** — it includes `test/e2e/` which has different mock surfaces. Use `bun test test/*.test.ts test/unit/ test/integration/` instead.
+
 **Never run `bun test src/pipeline/` or `bun test src/rag/` as a directory** — CI runs each file individually to avoid cross-file mock.module() contamination. Use `bun run check` for the canonical CI-equivalent command.
+
+### E2E Tests
+
+E2E tests live in `test/e2e/` and hit real Postgres via Prisma + real LanceDB (temp dir), with mocked LLM and ETAPI.
+
+**Architecture:**
+- `test/helpers/e2e-mock-setup.ts` — top-level `mock.module()` calls imported as side effect (must run before app.ts)
+- `test/helpers/mock-llm.ts` — LLM response map + model-router/prompt mocks
+- `test/helpers/e2e-harness.ts` — utilities only (no mocks), re-exports helpers
+- DI routes (brain-dump, copilot, import, setup, consistency, config) use `createXRoute()` factory
+- Non-DI routes (rag, suggest, integrations) use `await import("../../src/app.ts")` with auth-guard mocked in setup
+
+**Adding new E2E tests:**
+1. Create `test/e2e/feature.e2e.test.ts`
+2. Import `test/helpers/e2e-mock-setup.ts` before any app imports
+3. Add `bun test test/e2e/feature.e2e.test.ts` to `test`, `check`, and `test:e2e` scripts in package.json
+4. If the route uses DI factory, import `createXRoute` directly; otherwise dynamic-import `src/app.ts`
+
+### Contract Tests
+
+Contract tests live in `test/contracts/` and validate cross-service HTTP boundary shapes — "does the JSON shape match what the other service expects?"
+
+**Three contract surfaces:**
+- `portal-allknower.contract.test.ts` — 19 tests: mocks pipelines, hits all AllKnower routes via `app.handle()`, validates response shapes Portal depends on
+- `allknower-core.contract.test.ts` — 6 tests: mock ETAPI server on port 18080, validates etapi/client.ts parses Core responses correctly
+- `portal-core.contract.test.ts` — 10 tests: pure fixture-shape validation (no server), checks recorded ETAPI responses match Portal's expectations
+- `schema-drift.test.ts` — 3 tests: regex comparison of Portal vs AllKnower Zod schema names, warns on drift
+
+**Key infrastructure:**
+- `test/helpers/contract-helpers.ts` — `assertMatchesSchema()`, `assertFieldsPresent()`, `assertArrayOf()`
+- `test/helpers/etapi-fixtures.ts` — `ETAPI_FIXTURES` object + `createMockEtapiServer(port)`
+- `test/fixtures/etapi-responses/` — 6 recorded JSON/txt files matching real Core ETAPI shapes
+
+**Critical pattern — Portal→AllKnower tests:**
+Use ONLY dynamic `import("../../src/app.ts")` for fullApp. Do NOT statically import DI factory routes (e.g., `createCopilotRoute`) — the static import triggers the real auth-guard module graph before `mock.module()` takes effect, breaking auth bypass.
+
+**Adding new contract tests:**
+1. Create `test/contracts/feature.contract.test.ts`
+2. Add `bun test test/contracts/feature.contract.test.ts` to `test`, `check`, and `test:contracts` scripts in package.json
+3. For Portal→AllKnower contracts: mock all pipeline deps, use dynamic import for app.ts
+
+```bash
+bun run test:contracts     # contract tests only
+```
 
 ### mock.module() Rules (Critical)
 
@@ -60,6 +107,43 @@ Bun's `mock.module()` replaces the entire module in the shared registry for the 
 4. **When mocking `../env.ts`**, always include `DATABASE_URL` and `NODE_ENV` — even if the test doesn't use them. Other files' side-effects read env during module graph resolution.
 
 The two most-mocked modules are `src/etapi/client.ts` (13 function exports) and `src/integrations/allcodex.ts` (5 exports + 1 class). Both need complete mocks in every test file that references them.
+
+### Load & Performance Tests
+
+Load tests live in `perf/` and use k6 + a mock OpenRouter server. Not part of CI — run manually.
+
+```bash
+# Prerequisites: AllKnower running on :3001, k6 installed
+bun run perf/seed/seed-perf-data.ts   # seed test data (once)
+./perf/run.sh health-baseline          # run a scenario
+./perf/run.sh mixed-workload           # realistic traffic mix
+```
+
+**Key files:**
+- `perf/mock-openrouter/server.ts` — instant-response mock LLM on :19001
+- `perf/k6/scenarios/` — 8 scenarios (health, RAG, brain-dump, copilot, suggest, mixed, lock contention)
+- `perf/run.sh` — orchestrates mock server startup + k6 execution
+- `perf/seed/seed-perf-data.ts` — seeds 20 brain dumps + RAG reindex
+
+**To use mock LLM:** set `OPENROUTER_BASE_URL=http://localhost:19001/api/v1` in AllKnower `.env`.
+
+### Compaction Accuracy Evaluation
+
+Measures whether session compaction retains critical context. Not part of CI — run manually before/after compaction prompt or schema changes.
+
+```bash
+bun run eval/compaction-eval.ts                          # all sessions
+bun run eval/compaction-eval.ts --session=kingdom-founding  # single session
+bun run eval/compaction-eval.ts --threshold=0.9          # strict threshold
+```
+
+**Key files:**
+- `test/fixtures/golden-sessions/` — 3 scripted sessions with tagged facts (kingdom-founding, character-web, multi-compaction)
+- `eval/probes/` — keyword-based probe questions per session
+- `eval/lib/` — session player, probe scorer, report generator
+- `eval/compaction-eval.ts` — entry point, exit code 0=pass 1=fail
+
+**Target:** ≥80% overall accuracy, <5% degradation across double compaction.
 
 ## Common Pitfalls
 

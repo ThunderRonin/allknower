@@ -1,0 +1,75 @@
+{
+    "sessionId": "kingdom-founding",
+    "probes": [
+        {
+            "id": "p1",
+            "question": "How long ago was Valorheim founded and by whom?",
+            "expectedFacts": ["f1"],
+            "expectedKeywords": ["800", "Aldric the First"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p2",
+            "question": "What bodies of water and mountain ranges border Valorheim?",
+            "expectedFacts": ["f2", "f3"],
+            "expectedKeywords": ["Frostmere Sea", "Dragon's Spine"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p3",
+            "question": "Name all 7 seats on the Ruling Council of Valorheim.",
+            "expectedFacts": ["f5"],
+            "expectedKeywords": ["Crown", "Sword", "Quill", "Coin", "Flame", "Shield", "Star"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p4",
+            "question": "What are the currency denominations in Valorheim and their exchange rates?",
+            "expectedFacts": ["f7"],
+            "expectedKeywords": ["Aurens", "Marks", "Bits", "10", "100"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p5",
+            "question": "What event caused the rivalry between Valorheim and Thornwall, and how long ago was it?",
+            "expectedFacts": ["f8"],
+            "expectedKeywords": ["War of Broken Oaths", "300"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p6",
+            "question": "Who leads Valorheim's military and what is it called?",
+            "expectedFacts": ["f9"],
+            "expectedKeywords": ["Frostguard", "Brianna Ironhelm"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p7",
+            "question": "What are the two moons in Valorheim's religion and what do they represent?",
+            "expectedFacts": ["f10"],
+            "expectedKeywords": ["Lunara", "wisdom", "Solus", "courage"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p8",
+            "question": "How old is Archmage Celine and where does she work?",
+            "expectedFacts": ["f11"],
+            "expectedKeywords": ["200", "Mage Tower", "Solara"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p9",
+            "question": "What is Valorheim's chief export and where is it mined?",
+            "expectedFacts": ["f12"],
+            "expectedKeywords": ["moonstone", "Shimmering Caverns"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p10",
+            "question": "Who are the Tidecallers?",
+            "expectedFacts": ["f13"],
+            "expectedKeywords": ["fishing", "semi-autonomous", "Frostmere"],
+            "difficulty": "medium"
+        }
+    ]
+}

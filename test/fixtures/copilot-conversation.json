@@ -1,0 +1,8 @@
+{
+    "noteId": "note-copilot-1",
+    "messages": [
+        { "role": "user", "content": "Tell me more about Aldric's background." },
+        { "role": "assistant", "content": "Aldric was born in the northern provinces of Valorheim." },
+        { "role": "user", "content": "What about his family?" }
+    ]
+}

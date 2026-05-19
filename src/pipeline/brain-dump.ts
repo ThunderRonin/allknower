@@ -22,6 +22,49 @@ import { rootLogger } from "../logger.ts";
 const DEFAULT_LORE_ROOT_NOTE_ID = "root";
 const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 
+/**
+ * Retrieves and merges retrieval-augmented (RAG) context for the given text.
+ *
+ * Performs a general lore query and, when `credentials` are provided, attempts a secondary
+ * statblock-grounded query; on failure of either retrieval the function logs a warning and
+ * continues without that portion of context. The returned context prioritizes statblock-grounded
+ * results, removes duplicate entries by `noteId`, and is truncated to at most 12 chunks.
+ *
+ * @param credentials - Optional AllCodex/Etapi credentials used to enable statblock-grounded retrieval
+ * @returns An array of lore query result chunks (possibly empty), deduplicated by `noteId`, with statblock-grounded chunks prioritized and limited to 12 items
+ */
+async function gatherRagContext(
+    rawText: string,
+    credentials?: EtapiCredentials,
+): Promise<Awaited<ReturnType<typeof queryLore>>> {
+    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
+    try {
+        ragContext = await queryLore(rawText, 10);
+    } catch (e: unknown) {
+        rootLogger.warn("General RAG retrieval failed, continuing without context", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    let statblockContext: typeof ragContext = [];
+    try {
+        if (!credentials) throw new Error("no credentials");
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
+        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
+        if (statblockNoteIds.length > 0) {
+            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
+        }
+    } catch (e: unknown) {
+        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    return [...statblockContext, ...ragContext.filter(
+        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
+    )].slice(0, 12);
+}
+
 type DuplicateMatch = { noteId: string; title: string; score: number };
 type DuplicateInfo = { proposedTitle: string; proposedType: string; matches: DuplicateMatch[] };
 
@@ -59,11 +102,15 @@ export interface BrainDumpInboxResult {
 }
 
 /**
- * Main brain dump pipeline.
+ * Runs the brain-dump pipeline to extract structured entities from raw worldbuilding text and either queue them, propose them for review, or persist them to AllCodex.
  *
- * @param rawText     Raw worldbuilding text to process
- * @param mode        "auto" (default) → write immediately, "review" → propose without writing, "inbox" → skip processing
- * @param options     Additional pipeline options
+ * @param mode - "auto" writes results to AllCodex immediately (default), "review" returns proposed entities without writing, "inbox" queues the raw text and skips processing
+ * @param options.autoRelate - When creating notes, attempt to auto-relate new notes to existing ones (defaults to true)
+ * @param options.credentials - Optional ETAPI credentials used for AllCodex operations and statblock-grounded retrieval
+ * @param options.userId - Optional user identifier used for idempotency and history records
+ * @param options.model - Optional model override for the LLM call
+ * @returns When mode is "inbox", an inbox acknowledgement; when mode is "review", a review result containing proposed entities (and possible duplicate matches); when mode is "auto", a write result with created/updated/skipped lists plus `reindexIds` and optional relation stats
+ * @throws If the AllCodex preflight probe fails (AllCodex is not connected)
  */
 export async function runBrainDump(
     rawText: string,
@@ -117,34 +164,7 @@ export async function runBrainDump(
     }
 
     // Step 1: RAG context retrieval — general + statblock-grounded
-    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
-    try {
-        ragContext = await queryLore(rawText, 10);
-    } catch (e: unknown) {
-        rootLogger.warn("General RAG retrieval failed, continuing without context", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    // Statblock-grounded retrieval: fetch statblock noteIds from AllCodex and scope a secondary query to them.
-    // This grounds creature/NPC generation against existing homebrew statblocks automatically.
-    let statblockContext: typeof ragContext = [];
-    try {
-        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
-        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
-        if (statblockNoteIds.length > 0) {
-            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
-        }
-    } catch (e: unknown) {
-        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    // Merge: prioritize statblock hits at top of context if relevant
-    const mergedContext = [...statblockContext, ...ragContext.filter(
-        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
-    )].slice(0, 12);
+    const mergedContext = await gatherRagContext(rawText, credentials);
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
@@ -256,32 +276,7 @@ export async function* runBrainDumpStream(
 
     // RAG retrieval
     yield { type: "status", stage: "rag", message: "Querying existing lore for context..." };
-    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
-    try {
-        ragContext = await queryLore(rawText, 10);
-    } catch (e: unknown) {
-        rootLogger.warn("General RAG retrieval failed, continuing without context", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    let statblockContext: typeof ragContext = [];
-    try {
-        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
-        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
-        if (statblockNoteIds.length > 0) {
-            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
-        }
-    } catch (e: unknown) {
-        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    const mergedContext = [...statblockContext, ...ragContext.filter(
-        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
-    )].slice(0, 12);
-
+    const mergedContext = await gatherRagContext(rawText, credentials);
     yield { type: "status", stage: "rag", message: `Found ${mergedContext.length} context chunks` };
 
     // Build prompt + stream LLM

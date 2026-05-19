@@ -1,0 +1,75 @@
+{
+    "sessionId": "multi-compaction",
+    "probes": [
+        {
+            "id": "p1",
+            "question": "What physical change does a Shadow Resonance caster exhibit?",
+            "expectedFacts": ["f2"],
+            "expectedKeywords": ["slitted", "pupils"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p2",
+            "question": "What was the name and type of Archmage Voss's dual attunement?",
+            "expectedFacts": ["f4"],
+            "expectedKeywords": ["Storm", "Shadow", "Voss"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p3",
+            "question": "Who is the current Shadow Archon?",
+            "expectedFacts": ["f7"],
+            "expectedKeywords": ["vacant", "Nyx", "disappeared"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p4",
+            "question": "What is Nullstone and what does it do?",
+            "expectedFacts": ["f9"],
+            "expectedKeywords": ["Voidchasms", "disrupts", "10"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p5",
+            "question": "Who leads the anti-magic resistance and what is their motivation?",
+            "expectedFacts": ["f11"],
+            "expectedKeywords": ["Marcus Grimm", "Untuned", "family", "Fire"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p6",
+            "question": "How much does a Harmonic Crystal cost and how long does it last?",
+            "expectedFacts": ["f12"],
+            "expectedKeywords": ["50", "Aurens", "3 days"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p7",
+            "question": "What dual spell protected Solara and during which war?",
+            "expectedFacts": ["f13"],
+            "expectedKeywords": ["Worldshield", "Storm", "Earth", "War of Broken Oaths"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p8",
+            "question": "Which Archons support banning Shadow attunement?",
+            "expectedFacts": ["f16"],
+            "expectedKeywords": ["Pyrra", "Zara"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p9",
+            "question": "What is the lost 6th Harmonic and what was it used to build?",
+            "expectedFacts": ["f17"],
+            "expectedKeywords": ["Light", "Crystal Spire", "1000 years"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p10",
+            "question": "What are the symptoms of Harmonic Sickness?",
+            "expectedFacts": ["f5"],
+            "expectedKeywords": ["nosebleeds", "tremors", "blindness"],
+            "difficulty": "easy"
+        }
+    ]
+}
