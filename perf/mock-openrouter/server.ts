@@ -35,6 +35,12 @@ const MOCK_RESPONSES: Record<string, string> = {
     }),
 };
 
+/**
+ * Determine which mock response task to use by inspecting the last message's content.
+ *
+ * @param body - Request-like object expected to contain a `messages` array whose elements have a `content` string; missing or malformed inputs are treated as having an empty last message.
+ * @returns The task label to use: `"compact"` if the last message contains `"compact"` or `"archivist"`, `"copilot"` if it contains `"copilot"` or `"article"`, `"consistency"` if it contains `"consistency"`, `"gaps"` if it contains `"gap"`, `"relations"` if it contains `"relation"`, and `"default"` otherwise. Matching is case-sensitive.
+ */
 function detectTask(body: any): string {
     const messages = body?.messages ?? [];
     const lastMsg = messages[messages.length - 1]?.content ?? "";

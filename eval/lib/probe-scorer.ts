@@ -21,6 +21,13 @@ const DIFFICULTY_WEIGHTS: Record<string, number> = {
     hard: 2.0,
 };
 
+/**
+ * Scores a probe by matching its expected keywords against a compacted state object.
+ *
+ * @param probe - The probe to evaluate; its `expectedKeywords` are checked against the state
+ * @param compactedState - An object representing compacted state that will be stringified and searched (case-insensitive)
+ * @returns A `ProbeResult` where `passed` is `true` if at least 50% of `expectedKeywords` were found; `score` is the keyword match ratio multiplied by the difficulty weight. The result also includes `matchedKeywords`, `missedKeywords`, `difficulty`, `probeId`, and `question`.
+ */
 export function scoreProbeAgainstState(
     probe: Probe,
     compactedState: Record<string, unknown>,
@@ -55,6 +62,17 @@ export function scoreProbeAgainstState(
     };
 }
 
+/**
+ * Score a probe by checking its expected keywords against a reconstructed context string.
+ *
+ * The function performs case-insensitive substring matching of each keyword against `rebuiltContext`,
+ * collects matched and missed keywords, computes `keywordScore` as `matched.length / expectedKeywords.length` (or `0` when there are no expected keywords),
+ * marks the probe as passed when `keywordScore >= 0.5`, and scales the final score by the probe's difficulty weight.
+ *
+ * @param probe - The probe to evaluate; `probe.expectedKeywords` are the keywords checked against the context.
+ * @param rebuiltContext - The reconstructed context text used for matching (case-insensitive).
+ * @returns A `ProbeResult` containing `probeId`, `question`, `matchedKeywords`, `missedKeywords`, `passed` (`true` when `keywordScore >= 0.5`), `difficulty`, and `score` (the keyword fraction multiplied by the difficulty weight).
+ */
 export function scoreProbeAgainstContext(
     probe: Probe,
     rebuiltContext: string,
@@ -101,6 +119,17 @@ export interface SessionScore {
     results: ProbeResult[];
 }
 
+/**
+ * Aggregate individual probe results into a session-level score summary.
+ *
+ * Computes counts and metrics including total probes, passed/failed counts, raw accuracy (passed / totalProbes or `0` when none),
+ * summed weighted score, maximum possible weighted score (sum of difficulty weights), weighted accuracy (weightedScore / maxWeightedScore or `0` when max is `0`),
+ * and returns the original list of results.
+ *
+ * @param sessionId - Identifier for the session being aggregated
+ * @param results - Array of per-probe `ProbeResult` objects to aggregate
+ * @returns A `SessionScore` containing totals, accuracy metrics, weighted scores, and the original `results`
+ */
 export function aggregateScores(sessionId: string, results: ProbeResult[]): SessionScore {
     const passed = results.filter((r) => r.passed).length;
     const maxWeighted = results.reduce((s, r) => s + DIFFICULTY_WEIGHTS[r.difficulty], 0);

@@ -1,6 +1,12 @@
 const BASE_URL = process.env.ALLKNOWER_URL || "http://localhost:3001";
 const AUTH_TOKEN = process.env.AUTH_TOKEN || "perf-test-token";
 
+/**
+ * Populates the service with 20 performance-test brain-dump records and then triggers a RAG reindex.
+ *
+ * Builds request headers using `AUTH_TOKEN`, posts 20 entries to the `/brain-dump` endpoint (logging success or warning per item),
+ * and finally posts to `/rag/reindex`, logging the reindex response status.
+ */
 async function seed() {
     const headers = {
         "Content-Type": "application/json",

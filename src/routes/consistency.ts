@@ -34,10 +34,13 @@ const CONSISTENCY_MAX_TOKENS = 2000;
 type NoteEntry = { noteId: string; title: string; content: string };
 
 /**
- * Resolve lore notes for consistency checking.
+ * Resolve a list of lore notes to be used for a consistency check.
  *
- * - Explicit mode (noteIds provided): fetch via ETAPI, strip HTML, return entries.
- * - Semantic sampling mode (no noteIds): RAG query + compact to token budget.
+ * If `noteIds` is provided, returns those notes with plain-text content; otherwise returns a semantically sampled set of relevant notes.
+ *
+ * @param noteIds - Optional explicit list of note IDs to resolve; when omitted the function performs semantic sampling.
+ * @param credentials - Credentials used to access codex/knowledge APIs.
+ * @returns An array of `NoteEntry` objects each containing `noteId`, `title`, and plain-text `content`.
  */
 async function resolveConsistencyNotes(
     noteIds: string[] | undefined,
@@ -64,7 +67,15 @@ async function resolveConsistencyNotes(
     }));
 }
 
-/** Build the lore-entries context block sent to the LLM. */
+/**
+ * Constructs the prompt context containing formatted lore entries for the LLM.
+ *
+ * Each note becomes a section headed with `## <title> (<noteId>)` followed by an excerpt of its
+ * content.
+ *
+ * @returns A single string starting with `## Lore Entries` and, for each note, a section with the
+ * note's title and id and an excerpt of its content truncated to MAX_NOTE_CHARS.
+ */
 function buildConsistencyPromptContext(notes: NoteEntry[]): string {
     const loreSummaries = notes.map(({ noteId, title, content }) => {
         const excerpt = content.slice(0, MAX_NOTE_CHARS);
@@ -73,7 +84,12 @@ function buildConsistencyPromptContext(notes: NoteEntry[]): string {
     return `## Lore Entries\n\n${loreSummaries.join("\n\n")}`;
 }
 
-/** Parse + validate the raw LLM JSON response, falling back gracefully. */
+/**
+ * Parse and validate a raw JSON response produced by the LLM for a consistency check.
+ *
+ * @param raw - Raw JSON string returned by the LLM
+ * @returns The validated consistency response object when parsing and schema validation succeed; otherwise a fallback object with `issues: []` and a `summary` explaining the failure
+ */
 function parseConsistencyResponse(raw: string): unknown {
     try {
         const parsed = JSON.parse(raw);
@@ -89,11 +105,11 @@ function parseConsistencyResponse(raw: string): unknown {
 }
 
 /**
- * Core consistency check logic shared by both /check and /check/stream.
+ * Performs a consistency check over resolved lore notes and returns the parsed result.
  *
- * Resolves notes, builds prompt context, calls LLM, parses the result.
- * Returns the empty-notes sentinel value when no notes are found so both
- * callers can treat the return value uniformly.
+ * @param noteIds - Optional list of note IDs to check; when omitted, a semantic sampling of notes is used.
+ * @param credentials - Credentials used to access codex and RAG data sources.
+ * @returns The consistency check result object containing `issues` (array) and `summary` (string). If no notes are found, returns `{ issues: [], summary: "No lore notes found to check." }`.
  */
 async function runConsistencyCheck(
     noteIds: string[] | undefined,
@@ -119,6 +135,17 @@ type ConsistencyRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
 
+/**
+ * Create an Elysia router exposing endpoints to run lore consistency checks.
+ *
+ * The router is mounted under the `/consistency` prefix, enforces authentication,
+ * applies AI-specific rate limiting (429 JSON error on limit), and exposes:
+ * - POST /check: runs a consistency check and returns the aggregated result as JSON.
+ * - POST /check/stream: runs a consistency check and streams SSE events (`status`, `result`, `done`, `error`) for progress and outcome.
+ *
+ * @param requireAuthImpl - Optional authentication middleware to apply to the router. Defaults to the built-in `requireAuth`.
+ * @returns An Elysia application instance configured with the consistency routes and middleware.
+ */
 export function createConsistencyRoute({
     requireAuthImpl = requireAuth,
 }: ConsistencyRouteDeps = {}) {

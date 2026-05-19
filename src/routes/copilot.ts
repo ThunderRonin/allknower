@@ -63,7 +63,15 @@ function portalChunksToRag(chunks: CopilotRagChunk[]): RagChunk[] {
     }));
 }
 
-/** Convert compacted RagChunk[] back to Portal's CopilotRagChunk shape. */
+/**
+ * Map internal RagChunk objects to the Portal CopilotRagChunk format.
+ *
+ * Converts each chunk's `noteTitle` to `title` and `content` to `excerpt`, preserving
+ * `noteId` and `score`.
+ *
+ * @param chunks - The array of internal `RagChunk` objects to convert
+ * @returns An array of `CopilotRagChunk` objects with `noteId`, `title`, `excerpt`, and `score` populated
+ */
 function ragToPortalChunks(chunks: RagChunk[]): CopilotRagChunk[] {
     return chunks.map((c) => ({
         noteId: c.noteId,
@@ -74,12 +82,12 @@ function ragToPortalChunks(chunks: RagChunk[]): CopilotRagChunk[] {
 }
 
 /**
- * Find or create a LoreSession, run tier-3 compaction if needed,
- * and persist the latest user message.
+ * Ensures a LoreSession exists for the given request, attempts tier-3 compaction when needed, and records the latest user message.
  *
- * Returns the resolved session on success, or an error descriptor
- * that the caller can forward as an HTTP response.
- */
+ * @param parsed - The original validated request payload; may include `sessionId` to resolve an existing session.
+ * @param compactedRequest - The request whose RAG context has been compacted; used for initial session metadata when creating a new session.
+ * @param userId - ID of the authenticated user performing the action.
+ * @returns On success, an object containing the resolved `loreSession`. On failure, an error descriptor `{ error: true; status: number; body: unknown }` suitable for forwarding as an HTTP response (for example, 404 when a provided `sessionId` does not exist or does not belong to `userId`). Compaction failures are treated as non-fatal and do not prevent a successful return. */
 async function resolveOrCreateSession(
     parsed: ArticleCopilotRequest,
     compactedRequest: ArticleCopilotRequest,
@@ -130,11 +138,13 @@ async function resolveOrCreateSession(
 }
 
 /**
- * Parse the request body, compact RAG context, and resolve/create a session.
+ * Parse and prepare an article copilot request and ensure an associated LoreSession exists.
  *
- * Encapsulates the identical setup block shared by /article and /article/stream.
- * Returns the prepared inputs on success, or an error descriptor the caller can
- * forward as an HTTP response.
+ * Parses the raw request, compacts its RAG context for the "article-copilot" task, and resolves or creates the user's lore session.
+ *
+ * @param body - The raw request body to be parsed as an ArticleCopilotRequest
+ * @param userId - The requesting user's ID used to resolve or create the session
+ * @returns On success, an object containing `compactedRequest` (with compacted `ragContext`) and the `loreSession`; on failure, an error descriptor `{ error: true, status, body }` intended to be forwarded as an HTTP response
  */
 async function prepareCopilotTurn(
     body: unknown,
@@ -156,8 +166,10 @@ async function prepareCopilotTurn(
 }
 
 /**
- * Persist the assistant message and increment the session token accumulator.
- * Callers are responsible for only invoking this when content is non-empty.
+ * Persist an assistant message for a lore session and increment that session's token accumulator.
+ *
+ * @param sessionId - ID of the lore session to associate the message with
+ * @param content - Assistant message content; must be non-empty
  */
 async function persistAssistantMessage(sessionId: string, content: string): Promise<void> {
     const msgTokens = countTokens(content);
@@ -181,6 +193,15 @@ type CopilotRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
 
+/**
+ * Creates and returns an Elysia application mounted at the `/copilot` prefix that exposes copilot endpoints.
+ *
+ * The returned app includes authentication middleware, rate limiting for AI usage, and two POST routes:
+ * - `/copilot/article` — non-streaming article-scoped copilot handler
+ * - `/copilot/article/stream` — SSE streaming article-scoped copilot handler
+ *
+ * @param requireAuthImpl - Optional authentication middleware to apply to the routes; defaults to the module's `requireAuth` implementation.
+ * @returns An Elysia application instance with the copilot routes and configured middleware.
 export function createCopilotRoute({
     requireAuthImpl = requireAuth,
 }: CopilotRouteDeps = {}) {
