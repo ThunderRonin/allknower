@@ -129,6 +129,54 @@ async function resolveOrCreateSession(
     return { loreSession };
 }
 
+/**
+ * Parse the request body, compact RAG context, and resolve/create a session.
+ *
+ * Encapsulates the identical setup block shared by /article and /article/stream.
+ * Returns the prepared inputs on success, or an error descriptor the caller can
+ * forward as an HTTP response.
+ */
+async function prepareCopilotTurn(
+    body: unknown,
+    userId: string,
+): Promise<
+    | { compactedRequest: ArticleCopilotRequest; loreSession: LoreSession }
+    | { error: true; status: number; body: unknown }
+> {
+    const parsed = ArticleCopilotRequestSchema.parse(body);
+    const compactedRag = await compactRagContext(
+        portalChunksToRag(parsed.ragContext),
+        { task: "article-copilot" },
+    );
+    const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
+
+    const sessionResult = await resolveOrCreateSession(parsed, compactedRequest, userId);
+    if ("error" in sessionResult) return sessionResult;
+    return { compactedRequest, loreSession: sessionResult.loreSession };
+}
+
+/**
+ * Persist the assistant message and increment the session token accumulator.
+ * Callers are responsible for only invoking this when content is non-empty.
+ */
+async function persistAssistantMessage(sessionId: string, content: string): Promise<void> {
+    const msgTokens = countTokens(content);
+    await Promise.all([
+        prisma.loreSessionMessage.create({
+            data: {
+                sessionId,
+                role: "assistant",
+                content,
+                tokenCount: msgTokens,
+            },
+        }),
+        prisma.loreSession.update({
+            where: { id: sessionId },
+            data: { tokensAccumulated: { increment: msgTokens } },
+        }),
+    ]);
+}
+
 type CopilotRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
@@ -154,40 +202,18 @@ export function createCopilotRoute({
     .post(
         "/article",
         async ({ body, session, set }) => {
-            const parsed = ArticleCopilotRequestSchema.parse(body);
-            const compactedRag = await compactRagContext(
-                portalChunksToRag(parsed.ragContext),
-                { task: "article-copilot" },
-            );
-            const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
-
-            // ── Session lifecycle ────────────────────────────────────────
-            const sessionResult = await resolveOrCreateSession(parsed, compactedRequest, session!.user.id);
-            if ("error" in sessionResult) {
-                set.status = sessionResult.status;
-                return sessionResult.body;
+            const prep = await prepareCopilotTurn(body, session!.user.id);
+            if ("error" in prep) {
+                set.status = prep.status;
+                return prep.body;
             }
-            const { loreSession } = sessionResult;
+            const { compactedRequest, loreSession } = prep;
 
             // Run LLM
             const response = await runArticleCopilotTurn(compactedRequest);
 
             // Persist assistant message + update token accumulator
-            const msgTokens = countTokens(response.assistantMessage);
-            await Promise.all([
-                prisma.loreSessionMessage.create({
-                    data: {
-                        sessionId: loreSession.id,
-                        role: "assistant",
-                        content: response.assistantMessage,
-                        tokenCount: msgTokens,
-                    },
-                }),
-                prisma.loreSession.update({
-                    where: { id: loreSession.id },
-                    data: { tokensAccumulated: { increment: msgTokens } },
-                }),
-            ]);
+            await persistAssistantMessage(loreSession.id, response.assistantMessage);
 
             return { ...response, sessionId: loreSession.id };
         },
@@ -204,20 +230,13 @@ export function createCopilotRoute({
     .post(
         "/article/stream",
         async ({ body, session, set }) => {
-            const parsed = ArticleCopilotRequestSchema.parse(body);
-            const compactedRag = await compactRagContext(
-                portalChunksToRag(parsed.ragContext),
-                { task: "article-copilot" },
-            );
-            const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
-
             // ── Session lifecycle (before SSE — errors return JSON) ──────
-            const sessionResult = await resolveOrCreateSession(parsed, compactedRequest, session!.user.id);
-            if ("error" in sessionResult) {
-                set.status = sessionResult.status;
-                return sessionResult.body;
+            const prep = await prepareCopilotTurn(body, session!.user.id);
+            if ("error" in prep) {
+                set.status = prep.status;
+                return prep.body;
             }
-            const { loreSession } = sessionResult;
+            const { compactedRequest, loreSession } = prep;
 
             // ── SSE streaming ───────────────────────────────────────────
             set.headers["Content-Type"] = "text/event-stream";
@@ -268,21 +287,7 @@ export function createCopilotRoute({
 
                         // After stream completes: persist assistant message + update tokens
                         if (assistantContent) {
-                            const msgTokens = countTokens(assistantContent);
-                            await Promise.all([
-                                prisma.loreSessionMessage.create({
-                                    data: {
-                                        sessionId,
-                                        role: "assistant",
-                                        content: assistantContent,
-                                        tokenCount: msgTokens,
-                                    },
-                                }),
-                                prisma.loreSession.update({
-                                    where: { id: sessionId },
-                                    data: { tokensAccumulated: { increment: msgTokens } },
-                                }),
-                            ]);
+                            await persistAssistantMessage(sessionId, assistantContent);
                         }
                     } catch (e) {
                         send("error", { error: e instanceof Error ? e.message : String(e) });

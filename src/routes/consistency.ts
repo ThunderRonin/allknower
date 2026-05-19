@@ -88,6 +88,33 @@ function parseConsistencyResponse(raw: string): unknown {
     }
 }
 
+/**
+ * Core consistency check logic shared by both /check and /check/stream.
+ *
+ * Resolves notes, builds prompt context, calls LLM, parses the result.
+ * Returns the empty-notes sentinel value when no notes are found so both
+ * callers can treat the return value uniformly.
+ */
+async function runConsistencyCheck(
+    noteIds: string[] | undefined,
+    credentials: AllCodexCredentials,
+): Promise<unknown> {
+    const notes = await resolveConsistencyNotes(noteIds, credentials);
+
+    if (notes.length === 0) {
+        return { issues: [], summary: "No lore notes found to check." };
+    }
+
+    const context = buildConsistencyPromptContext(notes);
+    const { raw } = await callLLM(CONSISTENCY_SYSTEM, "Check these lore entries for consistency issues.", "consistency", context, {
+        jsonSchema: CONSISTENCY_JSON_SCHEMA,
+        timeoutMs: CONSISTENCY_TIMEOUT_MS,
+        maxTokens: CONSISTENCY_MAX_TOKENS,
+    });
+
+    return parseConsistencyResponse(raw);
+}
+
 type ConsistencyRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
@@ -114,20 +141,7 @@ export function createConsistencyRoute({
     "/check",
     async ({ body, session }) => {
         const credentials = await resolveAllCodexCredentials(session!.user.id);
-        const notes = await resolveConsistencyNotes(body.noteIds, credentials);
-
-        if (notes.length === 0) {
-            return { issues: [], summary: "No lore notes found to check." };
-        }
-
-        const context = buildConsistencyPromptContext(notes);
-        const { raw } = await callLLM(CONSISTENCY_SYSTEM, "Check these lore entries for consistency issues.", "consistency", context, {
-            jsonSchema: CONSISTENCY_JSON_SCHEMA,
-            timeoutMs: CONSISTENCY_TIMEOUT_MS,
-            maxTokens: CONSISTENCY_MAX_TOKENS,
-        });
-
-        return parseConsistencyResponse(raw);
+        return runConsistencyCheck(body.noteIds, credentials);
     },
     {
         body: t.Object({
@@ -161,24 +175,8 @@ export function createConsistencyRoute({
 
                     try {
                         send("status", { stage: "analyze", message: "Analyzing notes..." });
-
-                        const notes = await resolveConsistencyNotes(body.noteIds, credentials);
-
-                        if (notes.length === 0) {
-                            send("result", { issues: [], summary: "No lore notes found to check." });
-                            send("done", {});
-                            controller.close();
-                            return;
-                        }
-
-                        const context = buildConsistencyPromptContext(notes);
-                        const { raw } = await callLLM(CONSISTENCY_SYSTEM, "Check these lore entries for consistency issues.", "consistency", context, {
-                            jsonSchema: CONSISTENCY_JSON_SCHEMA,
-                            timeoutMs: CONSISTENCY_TIMEOUT_MS,
-                            maxTokens: CONSISTENCY_MAX_TOKENS,
-                        });
-
-                        send("result", parseConsistencyResponse(raw));
+                        const result = await runConsistencyCheck(body.noteIds, credentials);
+                        send("result", result);
                         send("done", {});
                     } catch (e) {
                         send("error", { error: e instanceof Error ? e.message : String(e) });
