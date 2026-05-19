@@ -13,6 +13,18 @@ export const ETAPI_FIXTURES = {
     attributes: attributesFixture,
 };
 
+/**
+ * Maps an ETAPI request (path, method, URL) to a mock Response for use in tests.
+ *
+ * @param path - The request pathname (e.g., "/etapi/notes/123")
+ * @param method - The HTTP method (e.g., "GET", "POST", "PUT", "PATCH", "DELETE")
+ * @param url - The full request URL; query parameters (such as `search`) may affect the response
+ * @returns A Response containing one of:
+ * - JSON fixtures for `/etapi/app-info`, note search (when `search` query present), single note, create-note, or attributes endpoints
+ * - The note HTML content with `Content-Type: text/html` for note content reads
+ * - An empty `204 No Content` response for note content PUT and note DELETE
+ * - A plain-text `404 Not Found` response for any unmatched route
+ */
 function handleEtapiRequest(path: string, method: string, url: URL): Response {
     if (path === "/etapi/app-info") return Response.json(ETAPI_FIXTURES.appInfo);
     if (path === "/etapi/notes" && url.searchParams.has("search")) return Response.json(ETAPI_FIXTURES.noteSearch);
@@ -26,6 +38,12 @@ function handleEtapiRequest(path: string, method: string, url: URL): Response {
     return new Response("Not Found", { status: 404 });
 }
 
+/**
+ * Start a mock ETAPI HTTP server that serves predefined fixture responses for ETAPI endpoints.
+ *
+ * @param port - TCP port to listen on (default 18080)
+ * @returns An object containing `server`, the Bun server instance, and `close()`, a function that stops the server
+ */
 export function createMockEtapiServer(port = 18080): { server: ReturnType<typeof Bun.serve>; close: () => void } {
     const server = Bun.serve({
         port,

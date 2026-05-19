@@ -9,6 +9,17 @@ export interface EvalReport {
     passed: boolean;
 }
 
+/**
+ * Produces an evaluation summary from per-session scores using a pass threshold.
+ *
+ * Computes aggregate totals and derives overall accuracy, overall weighted accuracy,
+ * and whether the overall accuracy meets or exceeds the provided threshold.
+ *
+ * @param scores - Array of per-session `SessionScore` entries to include in the report
+ * @param threshold - Accuracy threshold (0–1) used to set `passThreshold` and determine `passed`
+ * @returns An `EvalReport` containing `timestamp`, the original `sessions`, `overallAccuracy`,
+ * `overallWeightedAccuracy`, `passThreshold`, and `passed`
+ */
 export function generateReport(scores: SessionScore[], threshold = 0.8): EvalReport {
     const totalProbes = scores.reduce((s, sc) => s + sc.totalProbes, 0);
     const totalPassed = scores.reduce((s, sc) => s + sc.passed, 0);
@@ -25,6 +36,14 @@ export function generateReport(scores: SessionScore[], threshold = 0.8): EvalRep
     };
 }
 
+/**
+ * Renders an evaluation report as a human-readable multi-line string.
+ *
+ * Produces a formatted text report with a header (title and timestamp), one block per session showing probes passed, accuracy, weighted score and weighted accuracy, and individual result lines that show PASS/FAIL, difficulty, probe ID, question, and an optional "Missing" list of keywords; finishes with overall accuracy, overall weighted accuracy, and a final verdict.
+ *
+ * @param report - The evaluation report to render
+ * @returns The formatted multi-line report string
+ */
 export function printReport(report: EvalReport): string {
     const lines: string[] = [];
 
