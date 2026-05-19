@@ -83,6 +83,8 @@ mock.module("../../src/env.ts", () => ({
         RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD: 0.85,
         RAG_CONTEXT_MAX_TOKENS: 6000,
         RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: 600,
+        AI_RATE_LIMIT_MAX: 1000,
+        AI_RATE_LIMIT_WINDOW_MS: 60_000,
         OPENROUTER_API_KEY: "test-key",
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
         RERANK_MODEL: "test/rerank",

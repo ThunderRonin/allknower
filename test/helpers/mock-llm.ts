@@ -41,7 +41,7 @@ export const LLM_RESPONSES: Record<string, string> = {
         schemaVersion: 1,
     }),
     "article-copilot": JSON.stringify({
-        reply: "Aldric is a compelling character. Consider adding his lineage.",
+        assistantMessage: "Aldric is a compelling character. Consider adding his lineage.",
         proposal: null,
         citations: [],
     }),
