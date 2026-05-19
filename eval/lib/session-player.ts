@@ -3,6 +3,9 @@ import { compactSession, rebuildContext } from "../../src/pipeline/session-compa
 import type { LoreSessionState, RagChunk } from "../../src/types/lore.ts";
 import { countTokens } from "../../src/utils/tokens.ts";
 
+const COMPACTION_TOKEN_THRESHOLD = 80_000;
+const COMPACTION_TOKEN_FORCE = 85_000;
+
 interface Turn {
     role: string;
     content: string;
@@ -68,10 +71,10 @@ export async function forceCompaction(played: PlayedSession): Promise<PlayedSess
     if (!session) throw new Error(`Session ${played.dbSessionId} not found`);
 
     // Force tokens above threshold if needed
-    if (session.tokensAccumulated < 80000) {
+    if (session.tokensAccumulated < COMPACTION_TOKEN_THRESHOLD) {
         await prisma.loreSession.update({
             where: { id: played.dbSessionId },
-            data: { tokensAccumulated: 85000 },
+            data: { tokensAccumulated: COMPACTION_TOKEN_FORCE },
         });
     }
 
@@ -79,7 +82,7 @@ export async function forceCompaction(played: PlayedSession): Promise<PlayedSess
     const record = {
         id: session.id,
         state: session.state,
-        tokensAccumulated: Math.max(session.tokensAccumulated, 85000),
+        tokensAccumulated: Math.max(session.tokensAccumulated, COMPACTION_TOKEN_FORCE),
         compactionCount: session.compactionCount,
         compactionFailed: session.compactionFailed,
         lockedAt: session.lockedAt,

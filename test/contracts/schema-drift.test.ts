@@ -74,5 +74,6 @@ describe("Schema drift: Portal vs AllKnower", () => {
 
         expect(portalSchemas.length).toBeGreaterThan(0);
         expect(allknowerSchemas.length).toBeGreaterThan(0);
+        expect(driftWarnings).toEqual([]);
     });
 });

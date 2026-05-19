@@ -23,7 +23,9 @@ console.log(`Running compaction accuracy eval for: ${sessions.join(", ")}`);
 console.log(`Threshold: ${(threshold * 100).toFixed(0)}%\n`);
 
 const allScores = [];
+let report;
 
+try {
 for (const sessionName of sessions) {
     console.log(`\n--- Evaluating: ${sessionName} ---`);
 
@@ -71,13 +73,13 @@ for (const sessionName of sessions) {
         const degradedScore = aggregateScores(`${sessionName}-degraded`, degradedResults);
         allScores.push(degradedScore);
 
-        const drop = contextScore.accuracy - degradedScore.accuracy;
+        const drop = stateScore.accuracy - degradedScore.accuracy;
         console.log(`  Degraded accuracy: ${(degradedScore.accuracy * 100).toFixed(1)}%`);
         console.log(`  Degradation: ${(drop * 100).toFixed(1)}% drop`);
     }
 }
 
-const report = generateReport(allScores, threshold);
+report = generateReport(allScores, threshold);
 const reportText = printReport(report);
 
 console.log("\n" + reportText);
@@ -92,6 +94,8 @@ writeFileSync(textPath, reportText);
 console.log(`\nResults saved to:`);
 console.log(`  ${jsonPath}`);
 console.log(`  ${textPath}`);
+} finally {
+    await prisma.$disconnect();
+}
 
-await prisma.$disconnect();
-process.exit(report.passed ? 0 : 1);
+process.exit(report?.passed ? 0 : 1);

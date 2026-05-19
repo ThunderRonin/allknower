@@ -13,44 +13,25 @@ export const ETAPI_FIXTURES = {
     attributes: attributesFixture,
 };
 
+function handleEtapiRequest(path: string, method: string, url: URL): Response {
+    if (path === "/etapi/app-info") return Response.json(ETAPI_FIXTURES.appInfo);
+    if (path === "/etapi/notes" && url.searchParams.has("search")) return Response.json(ETAPI_FIXTURES.noteSearch);
+    if (/^\/etapi\/notes\/[^/]+\/content$/.test(path) && method === "PUT") return new Response(null, { status: 204 });
+    if (/^\/etapi\/notes\/[^/]+\/content$/.test(path)) return new Response(ETAPI_FIXTURES.noteContent, { headers: { "Content-Type": "text/html" } });
+    if (/^\/etapi\/notes\/[^/]+$/.test(path) && method === "GET") return Response.json(ETAPI_FIXTURES.noteSingle);
+    if (path === "/etapi/create-note" && method === "POST") return Response.json(ETAPI_FIXTURES.createNote);
+    if (path === "/etapi/attributes" && method === "POST") return Response.json(ETAPI_FIXTURES.attributes);
+    if (/^\/etapi\/notes\/[^/]+$/.test(path) && method === "DELETE") return new Response(null, { status: 204 });
+    if (/^\/etapi\/notes\/[^/]+$/.test(path) && method === "PATCH") return Response.json(ETAPI_FIXTURES.noteSingle);
+    return new Response("Not Found", { status: 404 });
+}
+
 export function createMockEtapiServer(port = 18080): { server: ReturnType<typeof Bun.serve>; close: () => void } {
     const server = Bun.serve({
         port,
         fetch(req) {
             const url = new URL(req.url);
-            const path = url.pathname;
-
-            if (path === "/etapi/app-info") {
-                return Response.json(ETAPI_FIXTURES.appInfo);
-            }
-            if (path === "/etapi/notes" && url.searchParams.has("search")) {
-                return Response.json(ETAPI_FIXTURES.noteSearch);
-            }
-            if (path.match(/^\/etapi\/notes\/[^/]+\/content$/)) {
-                return new Response(ETAPI_FIXTURES.noteContent, {
-                    headers: { "Content-Type": "text/html" },
-                });
-            }
-            if (path.match(/^\/etapi\/notes\/[^/]+$/) && req.method === "GET") {
-                return Response.json(ETAPI_FIXTURES.noteSingle);
-            }
-            if (path === "/etapi/create-note" && req.method === "POST") {
-                return Response.json(ETAPI_FIXTURES.createNote);
-            }
-            if (path === "/etapi/attributes" && req.method === "POST") {
-                return Response.json(ETAPI_FIXTURES.attributes);
-            }
-            if (path.match(/^\/etapi\/notes\/[^/]+$/) && req.method === "DELETE") {
-                return new Response(null, { status: 204 });
-            }
-            if (path.match(/^\/etapi\/notes\/[^/]+$/) && req.method === "PATCH") {
-                return Response.json(ETAPI_FIXTURES.noteSingle);
-            }
-            if (path.match(/^\/etapi\/notes\/[^/]+\/content$/) && req.method === "PUT") {
-                return new Response(null, { status: 204 });
-            }
-
-            return new Response("Not Found", { status: 404 });
+            return handleEtapiRequest(url.pathname, req.method, url);
         },
     });
     return { server, close: () => server.stop() };

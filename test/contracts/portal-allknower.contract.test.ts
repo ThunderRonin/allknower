@@ -209,6 +209,9 @@ describe("Portal contract: POST /consistency/check", () => {
             if (body.issues.length > 0) {
                 assertFieldsPresent(body.issues[0], ["type", "severity", "description"], "consistency issue");
             }
+        } else {
+            expect([400, 500, 502]).toContain(status);
+            expect(typeof body.error).toBe("string");
         }
     }, 60_000);
 });
