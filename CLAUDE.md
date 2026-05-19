@@ -70,6 +70,33 @@ E2E tests live in `test/e2e/` and hit real Postgres via Prisma + real LanceDB (t
 3. Add `bun test test/e2e/feature.e2e.test.ts` to `test`, `check`, and `test:e2e` scripts in package.json
 4. If the route uses DI factory, import `createXRoute` directly; otherwise dynamic-import `src/app.ts`
 
+### Contract Tests
+
+Contract tests live in `test/contracts/` and validate cross-service HTTP boundary shapes — "does the JSON shape match what the other service expects?"
+
+**Three contract surfaces:**
+- `portal-allknower.contract.test.ts` — 19 tests: mocks pipelines, hits all AllKnower routes via `app.handle()`, validates response shapes Portal depends on
+- `allknower-core.contract.test.ts` — 6 tests: mock ETAPI server on port 18080, validates etapi/client.ts parses Core responses correctly
+- `portal-core.contract.test.ts` — 10 tests: pure fixture-shape validation (no server), checks recorded ETAPI responses match Portal's expectations
+- `schema-drift.test.ts` — 3 tests: regex comparison of Portal vs AllKnower Zod schema names, warns on drift
+
+**Key infrastructure:**
+- `test/helpers/contract-helpers.ts` — `assertMatchesSchema()`, `assertFieldsPresent()`, `assertArrayOf()`
+- `test/helpers/etapi-fixtures.ts` — `ETAPI_FIXTURES` object + `createMockEtapiServer(port)`
+- `test/fixtures/etapi-responses/` — 6 recorded JSON/txt files matching real Core ETAPI shapes
+
+**Critical pattern — Portal→AllKnower tests:**
+Use ONLY dynamic `import("../../src/app.ts")` for fullApp. Do NOT statically import DI factory routes (e.g., `createCopilotRoute`) — the static import triggers the real auth-guard module graph before `mock.module()` takes effect, breaking auth bypass.
+
+**Adding new contract tests:**
+1. Create `test/contracts/feature.contract.test.ts`
+2. Add `bun test test/contracts/feature.contract.test.ts` to `test`, `check`, and `test:contracts` scripts in package.json
+3. For Portal→AllKnower contracts: mock all pipeline deps, use dynamic import for app.ts
+
+```bash
+bun run test:contracts     # contract tests only
+```
+
 ### mock.module() Rules (Critical)
 
 Bun's `mock.module()` replaces the entire module in the shared registry for the duration of the `bun test` invocation. This creates a hard requirement:
