@@ -73,6 +73,7 @@ async function resolveConsistencyNotes(
  * Each note becomes a section headed with `## <title> (<noteId>)` followed by an excerpt of its
  * content.
  *
+ * @param notes - The lore note entries to include in the prompt context.
  * @returns A single string starting with `## Lore Entries` and, for each note, a section with the
  * note's title and id and an excerpt of its content truncated to MAX_NOTE_CHARS.
  */

@@ -202,6 +202,7 @@ type CopilotRouteDeps = {
  *
  * @param requireAuthImpl - Optional authentication middleware to apply to the routes; defaults to the module's `requireAuth` implementation.
  * @returns An Elysia application instance with the copilot routes and configured middleware.
+ */
 export function createCopilotRoute({
     requireAuthImpl = requireAuth,
 }: CopilotRouteDeps = {}) {
