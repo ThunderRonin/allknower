@@ -40,15 +40,35 @@ bun typecheck              # tsc --noEmit only
 ### Running Tests
 
 ```bash
-bun run check              # canonical CI command — typecheck + all test groups
-bun test test/             # unit tests (test/ directory)
+bun run check              # canonical CI command — typecheck + all test groups + E2E
+bun test test/*.test.ts test/unit/ test/integration/   # unit + integration (excludes E2E)
+bun run test:e2e           # E2E tests only (each file isolated)
 bun test src/etapi/        # ETAPI client tests
 bun test src/pipeline/parser.test.ts   # each pipeline file individually
 bun test src/routes/       # route tests
 bun test src/rag/indexer.test.ts       # each rag file individually
 ```
 
+**Never run `bun test test/` (recursive)** — it includes `test/e2e/` which has different mock surfaces. Use `bun test test/*.test.ts test/unit/ test/integration/` instead.
+
 **Never run `bun test src/pipeline/` or `bun test src/rag/` as a directory** — CI runs each file individually to avoid cross-file mock.module() contamination. Use `bun run check` for the canonical CI-equivalent command.
+
+### E2E Tests
+
+E2E tests live in `test/e2e/` and hit real Postgres via Prisma + real LanceDB (temp dir), with mocked LLM and ETAPI.
+
+**Architecture:**
+- `test/helpers/e2e-mock-setup.ts` — top-level `mock.module()` calls imported as side effect (must run before app.ts)
+- `test/helpers/mock-llm.ts` — LLM response map + model-router/prompt mocks
+- `test/helpers/e2e-harness.ts` — utilities only (no mocks), re-exports helpers
+- DI routes (brain-dump, copilot, import, setup, consistency, config) use `createXRoute()` factory
+- Non-DI routes (rag, suggest, integrations) use `await import("../../src/app.ts")` with auth-guard mocked in setup
+
+**Adding new E2E tests:**
+1. Create `test/e2e/feature.e2e.test.ts`
+2. Import `test/helpers/e2e-mock-setup.ts` before any app imports
+3. Add `bun test test/e2e/feature.e2e.test.ts` to `test`, `check`, and `test:e2e` scripts in package.json
+4. If the route uses DI factory, import `createXRoute` directly; otherwise dynamic-import `src/app.ts`
 
 ### mock.module() Rules (Critical)
 
