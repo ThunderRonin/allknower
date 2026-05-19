@@ -108,6 +108,25 @@ Bun's `mock.module()` replaces the entire module in the shared registry for the 
 
 The two most-mocked modules are `src/etapi/client.ts` (13 function exports) and `src/integrations/allcodex.ts` (5 exports + 1 class). Both need complete mocks in every test file that references them.
 
+### Load & Performance Tests
+
+Load tests live in `perf/` and use k6 + a mock OpenRouter server. Not part of CI — run manually.
+
+```bash
+# Prerequisites: AllKnower running on :3001, k6 installed
+bun run perf/seed/seed-perf-data.ts   # seed test data (once)
+./perf/run.sh health-baseline          # run a scenario
+./perf/run.sh mixed-workload           # realistic traffic mix
+```
+
+**Key files:**
+- `perf/mock-openrouter/server.ts` — instant-response mock LLM on :19001
+- `perf/k6/scenarios/` — 8 scenarios (health, RAG, brain-dump, copilot, suggest, mixed, lock contention)
+- `perf/run.sh` — orchestrates mock server startup + k6 execution
+- `perf/seed/seed-perf-data.ts` — seeds 20 brain dumps + RAG reindex
+
+**To use mock LLM:** set `OPENROUTER_BASE_URL=http://localhost:19001/api/v1` in AllKnower `.env`.
+
 ## Common Pitfalls
 
 1. **Prisma tests need live Postgres**: routes that call Prisma inline (e.g. `history/:id`) cannot be tested with the DI mock — they require a running Postgres instance.
