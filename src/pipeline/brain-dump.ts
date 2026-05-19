@@ -22,6 +22,38 @@ import { rootLogger } from "../logger.ts";
 const DEFAULT_LORE_ROOT_NOTE_ID = "root";
 const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 
+async function gatherRagContext(
+    rawText: string,
+    credentials?: EtapiCredentials,
+): Promise<Awaited<ReturnType<typeof queryLore>>> {
+    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
+    try {
+        ragContext = await queryLore(rawText, 10);
+    } catch (e: unknown) {
+        rootLogger.warn("General RAG retrieval failed, continuing without context", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    let statblockContext: typeof ragContext = [];
+    try {
+        if (!credentials) throw new Error("no credentials");
+        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
+        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
+        if (statblockNoteIds.length > 0) {
+            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
+        }
+    } catch (e: unknown) {
+        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+
+    return [...statblockContext, ...ragContext.filter(
+        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
+    )].slice(0, 12);
+}
+
 type DuplicateMatch = { noteId: string; title: string; score: number };
 type DuplicateInfo = { proposedTitle: string; proposedType: string; matches: DuplicateMatch[] };
 
@@ -117,34 +149,7 @@ export async function runBrainDump(
     }
 
     // Step 1: RAG context retrieval — general + statblock-grounded
-    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
-    try {
-        ragContext = await queryLore(rawText, 10);
-    } catch (e: unknown) {
-        rootLogger.warn("General RAG retrieval failed, continuing without context", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    // Statblock-grounded retrieval: fetch statblock noteIds from AllCodex and scope a secondary query to them.
-    // This grounds creature/NPC generation against existing homebrew statblocks automatically.
-    let statblockContext: typeof ragContext = [];
-    try {
-        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
-        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
-        if (statblockNoteIds.length > 0) {
-            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
-        }
-    } catch (e: unknown) {
-        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    // Merge: prioritize statblock hits at top of context if relevant
-    const mergedContext = [...statblockContext, ...ragContext.filter(
-        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
-    )].slice(0, 12);
+    const mergedContext = await gatherRagContext(rawText, credentials);
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
@@ -256,32 +261,7 @@ export async function* runBrainDumpStream(
 
     // RAG retrieval
     yield { type: "status", stage: "rag", message: "Querying existing lore for context..." };
-    let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
-    try {
-        ragContext = await queryLore(rawText, 10);
-    } catch (e: unknown) {
-        rootLogger.warn("General RAG retrieval failed, continuing without context", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    let statblockContext: typeof ragContext = [];
-    try {
-        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
-        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
-        if (statblockNoteIds.length > 0) {
-            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
-        }
-    } catch (e: unknown) {
-        rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
-            error: e instanceof Error ? e.message : String(e),
-        });
-    }
-
-    const mergedContext = [...statblockContext, ...ragContext.filter(
-        (r) => !statblockContext.some((s) => s.noteId === r.noteId)
-    )].slice(0, 12);
-
+    const mergedContext = await gatherRagContext(rawText, credentials);
     yield { type: "status", stage: "rag", message: `Found ${mergedContext.length} context chunks` };
 
     // Build prompt + stream LLM
