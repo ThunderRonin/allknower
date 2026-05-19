@@ -1,0 +1,18 @@
+{
+    "note": {
+        "noteId": "note-new123",
+        "title": "New Note",
+        "type": "text",
+        "mime": "text/html",
+        "isProtected": false,
+        "attributes": []
+    },
+    "branch": {
+        "branchId": "branch-new123",
+        "noteId": "note-new123",
+        "parentNoteId": "root",
+        "notePosition": 10,
+        "prefix": null,
+        "isExpanded": false
+    }
+}
