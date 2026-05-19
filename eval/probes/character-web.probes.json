@@ -1,0 +1,54 @@
+{
+    "sessionId": "character-web",
+    "probes": [
+        {
+            "id": "p1",
+            "question": "What happened to Kael's father and who was responsible?",
+            "expectedFacts": ["f3"],
+            "expectedKeywords": ["poisoned", "Cassian Vex", "Darius"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p2",
+            "question": "What injury did Kael's mother sustain and in what battle?",
+            "expectedFacts": ["f2"],
+            "expectedKeywords": ["left arm", "Siege of Ashvale"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p3",
+            "question": "What is the relationship between Thandril and Morwen?",
+            "expectedFacts": ["f5", "f11"],
+            "expectedKeywords": ["mentor", "apprentice", "Thandril"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p4",
+            "question": "Who crafted Kael's bow and what is it called?",
+            "expectedFacts": ["f9"],
+            "expectedKeywords": ["Brogan Deepforge", "Whisperwind"],
+            "difficulty": "easy"
+        },
+        {
+            "id": "p5",
+            "question": "What is notable about Kael's wolf companion?",
+            "expectedFacts": ["f6"],
+            "expectedKeywords": ["Frost", "scar", "muzzle", "bear"],
+            "difficulty": "medium"
+        },
+        {
+            "id": "p6",
+            "question": "What romantic subplot exists between the protagonist and antagonist families?",
+            "expectedFacts": ["f7", "f8"],
+            "expectedKeywords": ["Elise", "Vex", "love", "Kael"],
+            "difficulty": "hard"
+        },
+        {
+            "id": "p7",
+            "question": "What are the Hollowed and how long has Kael been tracking them?",
+            "expectedFacts": ["f10"],
+            "expectedKeywords": ["corrupted", "forest spirits", "3 years"],
+            "difficulty": "easy"
+        }
+    ]
+}
