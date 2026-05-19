@@ -1,4 +1,8 @@
 /**
+ * @deprecated Superseded by test/contracts/portal-allknower.contract.test.ts
+ * which covers 19 Portal→AllKnower contracts (vs 5 here).
+ * Kept for backward compatibility. Remove after new contracts verified in CI.
+ *
  * Portal-contract integration tests for AllKnower HTTP routes.
  * These tests verify the response shapes that the Portal depends on.
  * Prisma, ETAPI, and LLM dependencies are mocked.
