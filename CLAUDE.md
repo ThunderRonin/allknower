@@ -127,6 +127,24 @@ bun run perf/seed/seed-perf-data.ts   # seed test data (once)
 
 **To use mock LLM:** set `OPENROUTER_BASE_URL=http://localhost:19001/api/v1` in AllKnower `.env`.
 
+### Compaction Accuracy Evaluation
+
+Measures whether session compaction retains critical context. Not part of CI — run manually before/after compaction prompt or schema changes.
+
+```bash
+bun run eval/compaction-eval.ts                          # all sessions
+bun run eval/compaction-eval.ts --session=kingdom-founding  # single session
+bun run eval/compaction-eval.ts --threshold=0.9          # strict threshold
+```
+
+**Key files:**
+- `test/fixtures/golden-sessions/` — 3 scripted sessions with tagged facts (kingdom-founding, character-web, multi-compaction)
+- `eval/probes/` — keyword-based probe questions per session
+- `eval/lib/` — session player, probe scorer, report generator
+- `eval/compaction-eval.ts` — entry point, exit code 0=pass 1=fail
+
+**Target:** ≥80% overall accuracy, <5% degradation across double compaction.
+
 ## Common Pitfalls
 
 1. **Prisma tests need live Postgres**: routes that call Prisma inline (e.g. `history/:id`) cannot be tested with the DI mock — they require a running Postgres instance.
