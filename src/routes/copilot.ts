@@ -3,12 +3,13 @@ import { rateLimit } from "elysia-rate-limit";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
 import { ArticleCopilotRequestSchema, ArticleCopilotResponseSchema } from "../types/copilot.ts";
-import type { CopilotRagChunk } from "../types/copilot.ts";
+import type { ArticleCopilotRequest, CopilotRagChunk } from "../types/copilot.ts";
 import { runArticleCopilotTurn, runArticleCopilotStream, validateProposalScope } from "../pipeline/article-copilot.ts";
 import { sseEncode } from "../pipeline/stream-types.ts";
 import { compactRagContext } from "../rag/compact-context.ts";
 import type { RagChunk } from "../types/lore.ts";
 import prisma from "../db/client.ts";
+import type { LoreSession } from "@prisma/client";
 import { shouldCompact, compactSession } from "../pipeline/session-compactor.ts";
 import { countTokens } from "../utils/tokens.ts";
 import { rootLogger } from "../logger.ts";
@@ -72,6 +73,62 @@ function ragToPortalChunks(chunks: RagChunk[]): CopilotRagChunk[] {
     }));
 }
 
+/**
+ * Find or create a LoreSession, run tier-3 compaction if needed,
+ * and persist the latest user message.
+ *
+ * Returns the resolved session on success, or an error descriptor
+ * that the caller can forward as an HTTP response.
+ */
+async function resolveOrCreateSession(
+    parsed: ArticleCopilotRequest,
+    compactedRequest: ArticleCopilotRequest,
+    userId: string,
+): Promise<{ loreSession: LoreSession } | { error: true; status: number; body: unknown }> {
+    let loreSession;
+    if (parsed.sessionId) {
+        loreSession = await prisma.loreSession.findUnique({
+            where: { id: parsed.sessionId },
+        });
+        if (!loreSession || loreSession.userId !== userId) {
+            return { error: true, status: 404, body: { error: "NOT_FOUND", message: "Session not found" } };
+        }
+    } else {
+        loreSession = await prisma.loreSession.create({
+            data: {
+                userId,
+                title: compactedRequest.currentNote.title,
+                state: {},
+                tokensAccumulated: 0,
+            },
+        });
+    }
+
+    // Tier 3 compaction check
+    if (shouldCompact(loreSession)) {
+        try {
+            await compactSession(loreSession);
+            loreSession = await prisma.loreSession.findUniqueOrThrow({
+                where: { id: loreSession.id },
+            });
+        } catch (e) {
+            // CompactionLockError is non-fatal — proceed with existing context
+            rootLogger.warn("Session compaction skipped", { error: String(e) });
+        }
+    }
+
+    // Persist user message (before LLM call — may leave orphan on LLM failure)
+    await prisma.loreSessionMessage.create({
+        data: {
+            sessionId: loreSession.id,
+            role: "user",
+            content: parsed.transcript.at(-1)?.content ?? "",
+        },
+    });
+
+    return { loreSession };
+}
+
 type CopilotRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
 };
@@ -105,49 +162,12 @@ export function createCopilotRoute({
             const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
 
             // ── Session lifecycle ────────────────────────────────────────
-            const userId = session!.user.id;
-            let loreSession;
-            if (parsed.sessionId) {
-                loreSession = await prisma.loreSession.findUnique({
-                    where: { id: parsed.sessionId },
-                });
-                if (!loreSession || loreSession.userId !== userId) {
-                    set.status = 404;
-                    return { error: "NOT_FOUND", message: "Session not found" };
-                }
-            } else {
-                loreSession = await prisma.loreSession.create({
-                    data: {
-                        userId,
-                        title: compactedRequest.currentNote.title,
-                        state: {},
-                        tokensAccumulated: 0,
-                    },
-                });
+            const sessionResult = await resolveOrCreateSession(parsed, compactedRequest, session!.user.id);
+            if ("error" in sessionResult) {
+                set.status = sessionResult.status;
+                return sessionResult.body;
             }
-
-            // Tier 3 compaction check
-            if (shouldCompact(loreSession)) {
-                try {
-                    await compactSession(loreSession);
-                    loreSession = await prisma.loreSession.findUniqueOrThrow({
-                        where: { id: loreSession.id },
-                    });
-                } catch (e) {
-                    // CompactionLockError is non-fatal — proceed with existing context
-                    rootLogger.warn("Session compaction skipped", { error: String(e) });
-                }
-            }
-
-            // Persist user message (before LLM call — may leave orphan on LLM failure)
-            const userContent = parsed.transcript.at(-1)?.content ?? "";
-            await prisma.loreSessionMessage.create({
-                data: {
-                    sessionId: loreSession.id,
-                    role: "user",
-                    content: userContent,
-                },
-            });
+            const { loreSession } = sessionResult;
 
             // Run LLM
             const response = await runArticleCopilotTurn(compactedRequest);
@@ -192,47 +212,12 @@ export function createCopilotRoute({
             const compactedRequest = { ...parsed, ragContext: ragToPortalChunks(compactedRag) };
 
             // ── Session lifecycle (before SSE — errors return JSON) ──────
-            const userId = session!.user.id;
-            let loreSession;
-            if (parsed.sessionId) {
-                loreSession = await prisma.loreSession.findUnique({
-                    where: { id: parsed.sessionId },
-                });
-                if (!loreSession || loreSession.userId !== userId) {
-                    set.status = 404;
-                    return { error: "NOT_FOUND", message: "Session not found" };
-                }
-            } else {
-                loreSession = await prisma.loreSession.create({
-                    data: {
-                        userId,
-                        title: compactedRequest.currentNote.title,
-                        state: {},
-                        tokensAccumulated: 0,
-                    },
-                });
+            const sessionResult = await resolveOrCreateSession(parsed, compactedRequest, session!.user.id);
+            if ("error" in sessionResult) {
+                set.status = sessionResult.status;
+                return sessionResult.body;
             }
-
-            // Tier 3 compaction check
-            if (shouldCompact(loreSession)) {
-                try {
-                    await compactSession(loreSession);
-                    loreSession = await prisma.loreSession.findUniqueOrThrow({
-                        where: { id: loreSession.id },
-                    });
-                } catch (e) {
-                    rootLogger.warn("Session compaction skipped", { error: String(e) });
-                }
-            }
-
-            // Persist user message before streaming
-            await prisma.loreSessionMessage.create({
-                data: {
-                    sessionId: loreSession.id,
-                    role: "user",
-                    content: parsed.transcript.at(-1)?.content ?? "",
-                },
-            });
+            const { loreSession } = sessionResult;
 
             // ── SSE streaming ───────────────────────────────────────────
             set.headers["Content-Type"] = "text/event-stream";
