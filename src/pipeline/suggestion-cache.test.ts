@@ -25,7 +25,7 @@ mock.module("./relations.ts", () => ({
     applyRelations: mock(async () => ({ applied: [], skipped: [], failed: [] })),
 }));
 
-const mockFindUnique = mock(async () => null);
+const mockFindUnique = mock(async (): Promise<Record<string, unknown> | null> => null);
 const mockUpsert = mock(async () => ({}));
 const mockDeleteMany = mock(async () => ({ count: 0 }));
 
@@ -200,9 +200,9 @@ describe("getOrComputeSuggestions", () => {
     });
 
     it("deduplicates concurrent requests for same noteId+userId", async () => {
-        let resolveCompute!: (v: unknown) => void;
-        mockSuggestRelationsForNote.mockImplementation(
-            () => new Promise((resolve) => { resolveCompute = resolve; })
+        let resolveCompute!: Function;
+        (mockSuggestRelationsForNote as any).mockImplementation(
+            () => new Promise((resolve: Function) => { resolveCompute = resolve; })
         );
 
         const p1 = getOrComputeSuggestions(baseOpts);
