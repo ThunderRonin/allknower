@@ -100,73 +100,74 @@ export async function applyRelations(
     }
     const existingRelations = sourceNote.attributes?.filter(a => a.type === "relation") || [];
 
-    for (const rel of relations) {
-        try {
-            if (!isCanonicalRelationshipType(rel.relationshipType)) {
-                skipped.push({
-                    sourceNoteId,
-                    targetNoteId: rel.targetNoteId,
-                    relationshipType: rel.relationshipType,
-                    reason: `Unknown relationship type: ${rel.relationshipType}`,
-                });
-                continue;
-            }
+    await Promise.allSettled(
+        relations.map(async (rel) => {
+            try {
+                if (!isCanonicalRelationshipType(rel.relationshipType)) {
+                    skipped.push({
+                        sourceNoteId,
+                        targetNoteId: rel.targetNoteId,
+                        relationshipType: rel.relationshipType,
+                        reason: `Unknown relationship type: ${rel.relationshipType}`,
+                    });
+                    return;
+                }
 
-            const relationName = getCoreRelationName(rel.relationshipType);
+                const relationName = getCoreRelationName(rel.relationshipType);
 
-            const exists = existingRelations.some(
-                (attr) => attr.name === relationName && attr.value === rel.targetNoteId
-            );
+                const exists = existingRelations.some(
+                    (attr) => attr.name === relationName && attr.value === rel.targetNoteId
+                );
 
-            if (exists) {
-                skipped.push({
-                    sourceNoteId,
-                    targetNoteId: rel.targetNoteId,
-                    relationshipType: rel.relationshipType,
-                    reason: "Relation already exists.",
-                });
-                continue;
-            }
+                if (exists) {
+                    skipped.push({
+                        sourceNoteId,
+                        targetNoteId: rel.targetNoteId,
+                        relationshipType: rel.relationshipType,
+                        reason: "Relation already exists.",
+                    });
+                    return;
+                }
 
-            const result = await createRelation(sourceNoteId, rel.targetNoteId, rel.relationshipType, {
-                bidirectional: options.bidirectional ?? true,
-                description: rel.description,
-                credentials: options.credentials,
-            });
-
-            if (result.skipped) {
-                skipped.push({
-                    sourceNoteId,
-                    targetNoteId: rel.targetNoteId,
-                    relationshipType: rel.relationshipType,
-                    reason: result.reason ?? "Relation already exists.",
-                });
-                continue;
-            }
-
-            // Log to history
-            await prisma.relationHistory.create({
-                data: {
-                    sourceNoteId,
-                    targetNoteId: rel.targetNoteId,
-                    type: rel.relationshipType,
-                    relationName,
+                const result = await createRelation(sourceNoteId, rel.targetNoteId, rel.relationshipType, {
+                    bidirectional: options.bidirectional ?? true,
                     description: rel.description,
-                },
-            });
+                    credentials: options.credentials,
+                });
 
-            applied.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, relationName });
-        } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            rootLogger.error("Failed to apply relation", {
-                sourceNoteId,
-                targetNoteId: rel.targetNoteId,
-                relationType: rel.relationshipType,
-                error: msg,
-            });
-            failed.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, error: msg });
-        }
-    }
+                if (result.skipped) {
+                    skipped.push({
+                        sourceNoteId,
+                        targetNoteId: rel.targetNoteId,
+                        relationshipType: rel.relationshipType,
+                        reason: result.reason ?? "Relation already exists.",
+                    });
+                    return;
+                }
+
+                await prisma.relationHistory.create({
+                    data: {
+                        sourceNoteId,
+                        targetNoteId: rel.targetNoteId,
+                        type: rel.relationshipType,
+                        relationName,
+                        description: rel.description,
+                    },
+                });
+
+                applied.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, relationName });
+            } catch (error: unknown) {
+                const msg = error instanceof Error ? error.message : String(error);
+                rootLogger.error("Failed to apply relation", {
+                    sourceNoteId,
+                    targetNoteId: rel.targetNoteId,
+                    relationType: rel.relationshipType,
+                    error: msg,
+                });
+                failed.push({ sourceNoteId, targetNoteId: rel.targetNoteId, relationshipType: rel.relationshipType, error: msg });
+            }
+        })
+    );
 
     return { applied, skipped, failed };
 }
