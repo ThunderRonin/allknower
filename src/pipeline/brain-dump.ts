@@ -16,7 +16,8 @@ import {
 import prisma from "../db/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import type { BrainDumpResult, LoreEntityType } from "../types/lore.ts";
-import { suggestRelationsForNote, applyRelations } from "./relations.ts";
+import { applyRelations } from "./relations.ts";
+import { getOrComputeSuggestions } from "./suggestion-cache.ts";
 import { rootLogger } from "../logger.ts";
 
 const DEFAULT_LORE_ROOT_NOTE_ID = "root";
@@ -430,7 +431,14 @@ async function _writeEntitiesToAllCodex(
             try {
                 const entity = entities.find(e => e.title === note.title);
                 const content = entity?.content ?? note.title;
-                const suggestions = await suggestRelationsForNote(note.noteId, content, credentials);
+                const text = `[${note.title}]\n${content}`;
+                const suggestions = await getOrComputeSuggestions({
+                    noteId: note.noteId,
+                    text,
+                    userId,
+                    credentials,
+                    force: true,
+                });
                 const highConfidence = suggestions.filter(s => s.confidence === "high");
                 if (highConfidence.length > 0) {
                     const { applied, failed } = await applyRelations(note.noteId, highConfidence, { credentials });
