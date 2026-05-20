@@ -151,6 +151,22 @@ model RelationHistory {
   @@map("relation_history")
 }
 
+model RelationSuggestion {
+  id          String   @id @default(cuid())
+  noteId      String
+  userId      String   @default("")
+  contentHash String
+  suggestions Json
+  model       String
+  tokensUsed  Int?
+  latencyMs   Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([noteId, userId])
+  @@index([noteId, contentHash])
+  @@map("relation_suggestions")
+}
+
 model LoreSession {
   id                String               @id @default(cuid())
   userId            String?
