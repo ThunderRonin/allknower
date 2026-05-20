@@ -44,6 +44,11 @@ mock.module("../../src/db/client.ts", () => ({
         brainDumpHistory: {
             findFirst: mock(async () => null),
             create: mock(async () => ({ id: "history-1" }))
+        },
+        relationSuggestion: {
+            findUnique: mock(async () => null),
+            upsert: mock(async () => ({})),
+            deleteMany: mock(async () => ({ count: 0 })),
         }
     }
 }));

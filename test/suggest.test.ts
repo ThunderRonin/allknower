@@ -52,6 +52,17 @@ mock.module("../src/pipeline/relations.ts", () => ({
     })),
 }));
 
+mock.module("../src/pipeline/suggestion-cache.ts", () => ({
+    getOrComputeSuggestions: mock(async (opts: { text: string }) => [{
+        targetNoteId: "note-ally",
+        targetTitle: `Linked from ${opts.text}`,
+        relationshipType: "ally",
+        description: "Shared oath",
+    }]),
+    invalidateSuggestionCache: mock(async () => {}),
+    computeContentHash: mock((text: string) => "mock-hash"),
+}));
+
 mock.module("../src/integrations/allcodex.ts", () => ({
     connectAllCodexIntegration: mock(async () => ({ connected: true })),
     deleteAllCodexIntegration: mock(async () => {}),
