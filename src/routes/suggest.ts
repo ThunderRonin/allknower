@@ -6,7 +6,8 @@ import { callLLM } from "../pipeline/prompt.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { env } from "../env.ts";
 import prisma from "../db/client.ts";
-import { suggestRelationsForNote, applyRelations } from "../pipeline/relations.ts";
+import { applyRelations } from "../pipeline/relations.ts";
+import { getOrComputeSuggestions } from "../pipeline/suggestion-cache.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { GAP_DETECT_SYSTEM } from "../pipeline/prompts/gap-detect.ts";
 import { AUTOCOMPLETE_SYSTEM } from "../pipeline/prompts/autocomplete.ts";
@@ -121,7 +122,13 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 return { error: "Unauthorized" };
             }
             const credentials = await resolveAllCodexCredentials(userId);
-            const suggestions = await suggestRelationsForNote(body.noteId ?? "unknown", body.text, credentials);
+            const noteId = body.noteId ?? "unknown";
+            const suggestions = await getOrComputeSuggestions({
+                noteId,
+                text: body.text,
+                userId,
+                credentials,
+            });
             return { suggestions };
         },
         {
