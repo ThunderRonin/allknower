@@ -94,6 +94,9 @@ mock.module("../../src/db/client.ts", () => ({
                 return null;
             }),
         },
+        relationHistory: {
+            findMany: mock(async () => []),
+        },
     },
 }));
 

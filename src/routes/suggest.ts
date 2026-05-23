@@ -481,4 +481,51 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 tags: ["Intelligence"],
             },
         }
+    )
+    /**
+     * Relationship history — return recent relationship changes involving a note.
+     */
+    .get(
+        "/history/:noteId",
+        async ({ params, query, session, set }) => {
+            const userId = session?.user?.id;
+            if (!userId) {
+                set.status = 401;
+                return { error: "Unauthorized" };
+            }
+            const limit = Number(query.limit ?? 20);
+            const entries = await prisma.relationHistory.findMany({
+                where: {
+                    OR: [
+                        { sourceNoteId: params.noteId },
+                        { targetNoteId: params.noteId },
+                    ],
+                },
+                orderBy: { createdAt: "desc" },
+                take: limit,
+                select: {
+                    id: true,
+                    sourceNoteId: true,
+                    targetNoteId: true,
+                    type: true,
+                    relationName: true,
+                    description: true,
+                    createdAt: true,
+                },
+            });
+            return { entries };
+        },
+        {
+            params: t.Object({
+                noteId: t.String({ description: "Note ID to fetch relationship history for" }),
+            }),
+            query: t.Object({
+                limit: t.Optional(t.Numeric({ minimum: 1, maximum: 50, default: 20 })),
+            }),
+            detail: {
+                summary: "Relationship history",
+                description: "Returns recent relationship changes involving the given note.",
+                tags: ["Intelligence"],
+            },
+        }
     );

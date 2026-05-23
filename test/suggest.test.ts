@@ -158,6 +158,19 @@ mock.module("../src/db/client.ts", () => ({
         ragIndexMeta: {
             findMany: mock(async ({ take }: { take: number }) => autocompletePrefixResults.slice(0, take)),
         },
+        relationHistory: {
+            findMany: mock(async () => [
+                {
+                    id: "rh-1",
+                    sourceNoteId: "note-A",
+                    targetNoteId: "note-B",
+                    type: "ally",
+                    relationName: "relAlly",
+                    description: "Battle companions",
+                    createdAt: new Date("2026-05-20T12:00:00Z"),
+                },
+            ]),
+        },
     }
 }));
 
@@ -315,5 +328,14 @@ describe("Suggest routes", () => {
         expect(body.nodes[0].noteId).toBe("note-A");
         expect(body.edges.length).toBeGreaterThan(0);
         expect(typeof body.truncated).toBe("boolean");
+    });
+
+    it("GET /suggest/history/:noteId returns relationship history", async () => {
+        const { status, json } = await requestJson(app, "/suggest/history/note-A");
+        const body = json as { entries: Array<{ id: string; type: string }> };
+
+        expect(status).toBe(200);
+        expect(Array.isArray(body.entries)).toBe(true);
+        expect(body.entries[0].type).toBe("ally");
     });
 });
