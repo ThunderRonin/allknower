@@ -18,6 +18,10 @@ export const RELATIONSHIP_TYPE_TO_CORE_NAME = {
     related_to: "relRelatedTo",
 } as const;
 
+export const CORE_NAME_TO_CANONICAL: Record<string, CanonicalRelationshipType> = Object.fromEntries(
+    Object.entries(RELATIONSHIP_TYPE_TO_CORE_NAME).map(([canonical, core]) => [core, canonical as CanonicalRelationshipType]),
+) as Record<string, CanonicalRelationshipType>;
+
 export type CanonicalRelationshipType = keyof typeof RELATIONSHIP_TYPE_TO_CORE_NAME;
 
 export function getCoreRelationName(relationshipType: string): string {
