@@ -424,31 +424,39 @@ async function _writeEntitiesToAllCodex(
         }
     }
 
-    // Auto-relate
+    // Auto-relate: compute + cache suggestions for created AND updated notes.
+    // Created notes: force recompute, auto-apply high-confidence relations.
+    // Updated notes: cache-aware (skip if content unchanged), cache only (no auto-apply).
     const relationResults: Array<{ noteId: string; applied: number; failed: number }> = [];
-    if (autoRelate && created.length > 0) {
-        for (const note of created) {
-            try {
-                const entity = entities.find(e => e.title === note.title);
-                const content = entity?.content ?? note.title;
-                const text = `[${note.title}]\n${content}`;
-                const suggestions = await getOrComputeSuggestions({
-                    noteId: note.noteId,
-                    text,
-                    userId,
-                    credentials,
-                    force: true,
-                });
+    const notesToRelate = autoRelate
+        ? [...created.map(n => ({ ...n, isNew: true })), ...updated.map(n => ({ ...n, isNew: false }))]
+        : [];
+
+    for (const note of notesToRelate) {
+        try {
+            const entity = entities.find(e => e.title === note.title);
+            const content = entity?.content ?? note.title;
+            const text = `[${note.title}]\n${content}`;
+            const suggestions = await getOrComputeSuggestions({
+                noteId: note.noteId,
+                text,
+                userId,
+                credentials,
+                force: note.isNew,
+            });
+            if (note.isNew) {
                 const highConfidence = suggestions.filter(s => s.confidence === "high");
                 if (highConfidence.length > 0) {
                     const { applied, failed } = await applyRelations(note.noteId, highConfidence, { credentials });
                     relationResults.push({ noteId: note.noteId, applied: applied.length, failed: failed.length });
                 }
-            } catch (error) {
-                rootLogger.warn("Auto-relate failed", {
-                    entityTitle: note.title,
-                    error: error instanceof Error ? error.message : String(error),
-                });
+            }
+        } catch (error) {
+            rootLogger.warn("Auto-relate failed", {
+                entityTitle: note.title,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            if (note.isNew) {
                 relationResults.push({ noteId: note.noteId, applied: 0, failed: 0 });
             }
         }
