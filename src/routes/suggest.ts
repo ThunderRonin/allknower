@@ -8,6 +8,7 @@ import { env } from "../env.ts";
 import prisma from "../db/client.ts";
 import { applyRelations } from "../pipeline/relations.ts";
 import { getOrComputeSuggestions } from "../pipeline/suggestion-cache.ts";
+import { traverseRelationGraph } from "../pipeline/graph-traversal.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
 import { GAP_DETECT_SYSTEM } from "../pipeline/prompts/gap-detect.ts";
 import { AUTOCOMPLETE_SYSTEM } from "../pipeline/prompts/autocomplete.ts";
@@ -179,6 +180,42 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 summary: "Apply relationship suggestions",
                 description:
                     "Writes approved relation suggestions to AllCodex as relation attributes.",
+                tags: ["Intelligence"],
+            },
+        }
+    )
+    /**
+     * Relationship graph traversal — return a multi-hop subgraph of existing
+     * relationships centered on the given note.
+     */
+    .get(
+        "/graph/:noteId",
+        async ({ params, query, session, set }) => {
+            const userId = session?.user?.id;
+            if (!userId) {
+                set.status = 401;
+                return { error: "Unauthorized" };
+            }
+            const credentials = await resolveAllCodexCredentials(userId);
+            const depth = Number(query.depth ?? 2);
+            const maxNodes = Number(query.maxNodes ?? 50);
+            return traverseRelationGraph(params.noteId, {
+                depth,
+                maxNodes,
+                credentials,
+            });
+        },
+        {
+            params: t.Object({
+                noteId: t.String({ description: "Center note ID" }),
+            }),
+            query: t.Object({
+                depth: t.Optional(t.Numeric({ minimum: 1, maximum: 3, default: 2, description: "Traversal depth (1-3)" })),
+                maxNodes: t.Optional(t.Numeric({ minimum: 5, maximum: 100, default: 50, description: "Max nodes in result (5-100)" })),
+            }),
+            detail: {
+                summary: "Get relationship graph",
+                description: "Returns a multi-hop subgraph of existing relationships centered on the given note. Uses BFS traversal via ETAPI.",
                 tags: ["Intelligence"],
             },
         }

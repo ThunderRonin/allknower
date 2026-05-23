@@ -63,6 +63,21 @@ mock.module("../src/pipeline/suggestion-cache.ts", () => ({
     computeContentHash: mock((text: string) => "mock-hash"),
 }));
 
+mock.module("../src/pipeline/graph-traversal.ts", () => ({
+    traverseRelationGraph: mock(async (noteId: string, opts: { depth?: number }) => ({
+        nodes: [
+            { noteId, title: "Center", loreType: "character", depth: 0 },
+            { noteId: "neighbor-1", title: "Ally", loreType: "character", depth: 1 },
+        ],
+        edges: [
+            { sourceNoteId: noteId, targetNoteId: "neighbor-1", relationshipType: "ally" },
+        ],
+        centerNoteId: noteId,
+        maxDepthReached: opts?.depth ?? 2,
+        truncated: false,
+    })),
+}));
+
 mock.module("../src/integrations/allcodex.ts", () => ({
     connectAllCodexIntegration: mock(async () => ({ connected: true })),
     deleteAllCodexIntegration: mock(async () => {}),
@@ -283,5 +298,22 @@ describe("Suggest routes", () => {
         });
 
         expect(status).toBe(422);
+    });
+
+    it("GET /suggest/graph/:noteId returns a traversed subgraph", async () => {
+        const { status, json } = await requestJson(app, "/suggest/graph/note-A?depth=2");
+        const body = json as {
+            nodes: Array<{ noteId: string; depth: number }>;
+            edges: Array<{ sourceNoteId: string; targetNoteId: string }>;
+            centerNoteId: string;
+            truncated: boolean;
+        };
+
+        expect(status).toBe(200);
+        expect(body.centerNoteId).toBe("note-A");
+        expect(body.nodes.length).toBeGreaterThan(0);
+        expect(body.nodes[0].noteId).toBe("note-A");
+        expect(body.edges.length).toBeGreaterThan(0);
+        expect(typeof body.truncated).toBe("boolean");
     });
 });
