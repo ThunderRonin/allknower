@@ -1,4 +1,4 @@
-import { OpenRouter, fromChatMessages } from "@openrouter/sdk";
+import { OpenRouter } from "@openrouter/sdk";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
@@ -227,14 +227,8 @@ export async function callWithFallback(
 // ── Streaming LLM call with inactivity-based timeouts ────────────────────────
 
 /**
- * Stream an LLM response via the OpenRouter Responses API with inactivity-based
- * timeout protection. Yields `StreamChunk` items that callers (SSE routes) can
- * forward directly to the client.
- *
- * Uses `openrouter.callModel()` + `result.getItemsStream()` — the newer
- * Responses API — as opposed to `callWithFallback()` which uses the Chat
- * Completions API. Both co-exist: non-streaming internal pipelines keep using
- * `callWithFallback()`.
+ * Stream an LLM response via Chat Completions with inactivity-based timeout
+ * protection. Uses raw fetch() to bypass SDK Zod validation issues with SSE.
  *
  * Timeout strategy:
  * - **First chunk**: abort if no data arrives within `LLM_FIRST_CHUNK_TIMEOUT_MS`.
@@ -294,74 +288,123 @@ export async function* callModelStream(
         inactivityTimer = setTimeout(() => controller.abort(), INACTIVITY_MS);
     };
 
-    // Extract system message and build input
-    const systemMsg = messages.find(m => m.role === "system");
-    const nonSystemMessages = messages.filter(m => m.role !== "system");
-
-    // Build text format from responseFormat
-    const textFormat = options?.responseFormat?.type === "json_object"
-        ? { format: { type: "json_object" as const } }
-        : options?.responseFormat?.type === "json_schema"
-            ? { format: { type: "json_schema" as const, ...options.responseFormat.jsonSchema } }
-            : undefined;
+    // Build Chat Completions response_format (snake_case for the API)
+    let responseFormat: Record<string, unknown> | undefined;
+    if (options?.responseFormat?.type === "json_object") {
+        responseFormat = { type: "json_object" };
+    } else if (options?.responseFormat?.type === "json_schema") {
+        responseFormat = {
+            type: "json_schema",
+            json_schema: {
+                name: options.responseFormat.jsonSchema.name,
+                schema: options.responseFormat.jsonSchema.schema,
+                strict: options.responseFormat.jsonSchema.strict ?? true,
+            },
+        };
+    }
 
     let accumulatedText = "";
     let tokensUsed = 0;
     let usedModel = primaryModel;
 
     try {
-        const result = openrouter.callModel({
+        const baseUrl = env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+        const body: Record<string, unknown> = {
             model: primaryModel,
-            ...(fallbackModels.length > 0 && { models: fallbackModels }),
-            ...(systemMsg && { instructions: systemMsg.content }),
-            input: nonSystemMessages.length === 1 && nonSystemMessages[0].role === "user"
-                ? nonSystemMessages[0].content
-                : fromChatMessages(nonSystemMessages as any),
+            ...(fallbackModels.length > 0 && { models: [primaryModel, ...fallbackModels] }),
+            messages,
+            stream: true,
+            stream_options: { include_usage: true },
             temperature: options?.temperature ?? 0.3,
-            maxOutputTokens: options?.maxTokens ?? 30000,
-            ...(textFormat && { text: textFormat }),
+            max_tokens: options?.maxTokens ?? 30000,
+            ...(responseFormat && { response_format: responseFormat }),
             ...(options?.reasoning && { reasoning: options.reasoning }),
-            plugins: [{ id: "response-healing" as any }],
             provider: {
-                allowFallbacks: true,
+                allow_fallbacks: true,
                 ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
-                ...(env.OPENROUTER_ZDR === "true" && { dataCollection: "deny" as any }),
-            } as any,
-        }, {
-            signal: controller.signal,
-        } as any);
+                ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" }),
+            },
+        };
 
-        for await (const item of result.getItemsStream()) {
+        const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+                "HTTP-Referer": "https://allknower.local",
+                "X-Title": "AllKnower",
+                Accept: "text/event-stream",
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+
+        if (!res.ok) {
+            const errBody = await res.text().catch(() => "");
+            yield { type: "error", error: `OpenRouter ${res.status}: ${errBody}`, code: "API_ERROR" };
+            logLLMCall({ requestId: options?.requestId, task, model: primaryModel, tokensUsed: 0, latencyMs: Math.round(performance.now() - startTime) }, log);
+            return;
+        }
+
+        if (!res.body) {
+            yield { type: "error", error: "No response body from OpenRouter", code: "NO_BODY" };
+            return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
             if (!firstChunkReceived) {
                 firstChunkReceived = true;
                 clearTimeout(firstChunkTimer);
-                resetInactivity();
-            } else {
-                resetInactivity();
             }
+            resetInactivity();
 
-            if (item.type === "reasoning") {
-                const summaryText = ((item as any).summary ?? [])
-                    .map((s: any) => s?.text ?? "")
-                    .join("");
-                yield { type: "reasoning", content: summaryText };
-            } else if (item.type === "message") {
-                const messageText = ((item as any).content ?? [])
-                    .filter((c: any) => c?.type === "output_text")
-                    .map((c: any) => c?.text ?? "")
-                    .join("");
-                const delta = messageText.slice(accumulatedText.length);
-                if (delta) {
-                    accumulatedText += delta;
-                    yield { type: "token", content: delta };
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith(":")) continue;
+                if (trimmed === "data: [DONE]") continue;
+                if (!trimmed.startsWith("data: ")) continue;
+
+                let chunk: any;
+                try {
+                    chunk = JSON.parse(trimmed.slice(6));
+                } catch {
+                    continue;
+                }
+
+                if (chunk.model) usedModel = chunk.model;
+
+                // Final chunk with usage info (empty choices array)
+                if (chunk.usage) {
+                    tokensUsed = chunk.usage.total_tokens
+                        ?? (chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0);
+                }
+
+                const delta = chunk.choices?.[0]?.delta;
+                if (!delta) continue;
+
+                // Reasoning tokens (OpenRouter normalizes to `reasoning`, some providers use `reasoning_content`)
+                const reasoning = delta.reasoning ?? delta.reasoning_content;
+                if (reasoning) {
+                    yield { type: "reasoning", content: reasoning };
+                }
+
+                if (delta.content) {
+                    accumulatedText += delta.content;
+                    yield { type: "token", content: delta.content };
                 }
             }
         }
-
-        const response = await result.getResponse();
-        tokensUsed = (response.usage as any)?.totalTokens
-            ?? ((response.usage as any)?.inputTokens ?? 0) + ((response.usage as any)?.outputTokens ?? 0);
-        usedModel = (response as any).model ?? primaryModel;
 
         const latencyMs = Math.round(performance.now() - startTime);
 
