@@ -190,7 +190,6 @@ export async function callWithFallback(
                 plugins: [
                     { id: "response-healing" as const },
                 ],
-                // 3.3 + 3.4: explicit provider preferences + fallback routing
                 provider: {
                     allowFallbacks: true,
                     ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
