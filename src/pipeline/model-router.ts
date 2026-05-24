@@ -311,7 +311,7 @@ export async function* callModelStream(
         const baseUrl = env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
         const body: Record<string, unknown> = {
             model: primaryModel,
-            ...(fallbackModels.length > 0 && { models: [primaryModel, ...fallbackModels] }),
+            ...(fallbackModels.length > 0 && { models: fallbackModels }),
             messages,
             stream: true,
             stream_options: { include_usage: true },
