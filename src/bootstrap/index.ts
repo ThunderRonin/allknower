@@ -1,5 +1,6 @@
 import { ensureDefaultUser } from "./ensure-default-user.ts";
 import { ensureEtapiToken } from "./ensure-etapi-token.ts";
+import { initPricingCacheFromDb } from "../pipeline/pricing-fetcher.ts";
 import { rootLogger } from "../logger.ts";
 
 const log = rootLogger.child({ module: "bootstrap" });
@@ -27,6 +28,8 @@ async function attempt(): Promise<void> {
 
     await ensureEtapiToken(user.id);
     _status.etapiReady = true;
+
+    await initPricingCacheFromDb();
 }
 
 export async function runBootstrap(): Promise<void> {

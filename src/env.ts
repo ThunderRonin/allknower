@@ -64,6 +64,13 @@ export const envSchema = z.object({
     AUTOCOMPLETE_FALLBACK_3: z.string().default(""),
 
     RERANK_MODEL: z.string().default("cohere/rerank-4-pro"),
+    RAG_HYBRID_VECTOR_K: z.coerce.number().optional().default(0),
+    RAG_HYBRID_BM25_K: z.coerce.number().optional().default(0),
+    RAG_HYBRID_RRF_K: z.coerce.number().optional().default(60),
+    RAG_VECTOR_SIMILARITY_THRESHOLD: z.coerce.number().optional().default(0.3),
+    RAG_RERANK_TOP_N: z.coerce.number().optional().default(10),
+    RAG_RERANK_DOC_MAX_CHARS: z.coerce.number().optional().default(2048),
+    RAG_RERANK_ENABLED: z.string().default("true"),
 
     // Embedding Models
     EMBEDDING_CLOUD: z.string().default("qwen/qwen3-embedding-8b"),
@@ -140,6 +147,15 @@ export const envSchema = z.object({
         .optional()
         .default(60000)
         .pipe(z.number().positive()),
+
+    // VAPID keys for web push notifications
+    VAPID_PUBLIC_KEY: z.string().default(""),
+    VAPID_PRIVATE_KEY: z.string().default(""),
+    VAPID_SUBJECT: z.string().default("mailto:admin@example.com"),
+
+    // Resend (email notifications)
+    RESEND_API_KEY: z.string().default(""),
+    RESEND_FROM_EMAIL: z.string().default("noreply@allcodex.local"),
 }).superRefine((value, ctx) => {
     const rawKey = value.INTEGRATION_CREDENTIALS_KEY;
     const isValidKey =

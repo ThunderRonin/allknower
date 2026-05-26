@@ -12,8 +12,11 @@ import { setupRoute } from "./routes/setup.ts";
 import { importRoute } from "./routes/import.ts";
 import { configRoute } from "./routes/config.ts";
 import { copilotRoute } from "./routes/copilot.ts";
+import { metricsRoute } from "./routes/metrics.ts";
 import { integrationsRoute, internalIntegrationsRoute } from "./routes/integrations.ts";
 import { autoProvisionRoute } from "./routes/auto-provision.ts";
+import { notificationsRoute } from "./routes/notifications.ts";
+import { usageRoute } from "./routes/usage.ts";
 import { auth } from "./auth/index.ts";
 import { env } from "./env.ts";
 
@@ -70,12 +73,15 @@ export const app = new Elysia()
     .use(consistencyRoute)
     .use(suggestRoute)
     .use(copilotRoute)
+    .use(metricsRoute)
     .use(setupRoute)
     .use(importRoute)
     .use(configRoute)
     .use(integrationsRoute)
     .use(internalIntegrationsRoute)
     .use(autoProvisionRoute)
+    .use(notificationsRoute)
+    .use(usageRoute)
 
     // ── Root ──────────────────────────────────────────────────────────────────
     .get("/", () => ({

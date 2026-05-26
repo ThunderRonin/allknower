@@ -107,13 +107,17 @@ model LLMCallLog {
   requestId  String?
   task       String
   model      String
-  tokensUsed Int
-  latencyMs  Int
+  tokensUsed   Int
+  inputTokens  Int?
+  outputTokens Int?
+  costUsd      Decimal? @db.Decimal(12, 8)
+  latencyMs    Int
   createdAt  DateTime @default(now())
 
   @@index([userId])
   @@index([task])
   @@index([createdAt])
+  @@index([userId, createdAt])
   @@map("llm_call_log")
 }
 
@@ -243,4 +247,26 @@ model BrainDumpRevisionLink {
   @@index([brainDumpHistoryId])
   @@index([noteId])
   @@map("brain_dump_revision_links")
+}
+
+model ModelPricing {
+  id               String   @id @default(cuid())
+  modelId          String   @unique
+  pricePerMInput   Decimal  @db.Decimal(14, 8)
+  pricePerMOutput  Decimal  @db.Decimal(14, 8)
+  lastFetched      DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  @@map("model_pricing")
+}
+
+model UserBudget {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  dailyBudgetUsd     Decimal? @db.Decimal(10, 4)
+  monthlyBudgetUsd   Decimal? @db.Decimal(10, 4)
+  alertEmail         String?
+  digestLastSentDate String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  @@map("user_budgets")
 }

@@ -3,6 +3,7 @@ import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
 import type { StreamChunk } from "./stream-types.ts";
+import { computeCostUsd } from "./pricing-cache.ts";
 
 /**
  * Model Router — per-task model selection with native OpenRouter fallbacks.
@@ -144,6 +145,7 @@ export async function callWithFallback(
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
         log?: Logger;
+        userId?: string;
     }
 ): Promise<LLMResult> {
     const log = options?.log ?? rootLogger;
@@ -202,15 +204,16 @@ export async function callWithFallback(
 
         const latencyMs = Math.round(performance.now() - startTime);
         const raw = (response as any).choices?.[0]?.message?.content ?? "";
-        const tokensUsed = (response as any).usage?.total_tokens ?? 0;
+        const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
+        const outputTokens = (response as any).usage?.completion_tokens ?? 0;
+        const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
         const usedModel = (response as any).model ?? primaryModel;
 
         if (usedModel !== primaryModel) {
             log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
         }
 
-        // Fire-and-forget LLM call log — never blocks the pipeline
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
 
         return { raw, tokensUsed, model: usedModel, latencyMs };
     } catch (error) {
@@ -249,6 +252,7 @@ export async function* callModelStream(
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
         log?: Logger;
+        userId?: string;
     }
 ): AsyncGenerator<StreamChunk> {
     const log = options?.log ?? rootLogger;
@@ -290,6 +294,8 @@ export async function* callModelStream(
 
     let accumulatedText = "";
     let tokensUsed = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
     let usedModel = primaryModel;
 
     try {
@@ -328,8 +334,9 @@ export async function* callModelStream(
             if (chunk.model) usedModel = chunk.model;
 
             if (chunk.usage) {
-                tokensUsed = chunk.usage.totalTokens
-                    ?? (chunk.usage.promptTokens ?? 0) + (chunk.usage.completionTokens ?? 0);
+                inputTokens = chunk.usage.promptTokens ?? 0;
+                outputTokens = chunk.usage.completionTokens ?? 0;
+                tokensUsed = chunk.usage.totalTokens ?? (inputTokens + outputTokens);
             }
 
             const delta = chunk.choices?.[0]?.delta;
@@ -351,7 +358,7 @@ export async function* callModelStream(
             log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
         }
 
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
 
         yield { type: "done", raw: accumulatedText, tokensUsed, model: usedModel, latencyMs };
     } catch (error) {
@@ -364,7 +371,7 @@ export async function* callModelStream(
         } else {
             yield { type: "error", error: error instanceof Error ? error.message : String(error) };
         }
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs, userId: options?.userId }, log);
     } finally {
         clearTimeout(firstChunkTimer);
         clearTimeout(inactivityTimer);
@@ -375,12 +382,22 @@ export async function* callModelStream(
 // ── Fire-and-forget call logger ───────────────────────────────────────────────
 
 function logLLMCall(
-    data: { requestId?: string; task: string; model: string; tokensUsed: number; latencyMs: number },
+    data: { requestId?: string; task: string; model: string; tokensUsed: number; inputTokens?: number; outputTokens?: number; latencyMs: number; userId?: string },
     log: Logger
 ): void {
-    // Dynamic import to avoid circular dependency at module load time
+    const costUsd = (data.inputTokens && data.outputTokens)
+        ? computeCostUsd(data.model, data.inputTokens, data.outputTokens)
+        : undefined;
+
     import("../db/client.ts").then(({ default: prisma }) => {
-        return prisma.lLMCallLog.create({ data });
+        return prisma.lLMCallLog.create({
+            data: {
+                ...data,
+                inputTokens: data.inputTokens ?? null,
+                outputTokens: data.outputTokens ?? null,
+                costUsd: costUsd ?? null,
+            },
+        });
     }).catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn("Failed to log LLM call", { error: msg });

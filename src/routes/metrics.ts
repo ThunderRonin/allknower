@@ -10,6 +10,7 @@ export function createMetricsRoute({ requireAuthImpl = requireAuth }: MetricsRou
     return new Elysia({ prefix: "/metrics" })
         .use(requireAuthImpl)
         .get("/llm", async ({ session }) => {
+        // @deprecated — use /usage/summary instead
         const userId = session!.user.id;
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
