@@ -22,9 +22,13 @@ runBootstrap().catch((e) => {
 });
 
 if (env.NODE_ENV !== "test") {
-    startBrainDumpWorker().catch((e) => {
-        console.error("❌ Brain dump worker failed to start:", e);
-    });
+    void (async () => {
+        try {
+            await startBrainDumpWorker();
+        } catch (e) {
+            console.error("❌ Brain dump worker failed to start:", e);
+        }
+    })();
 
     const NIGHTLY_INTERVAL_MS = 24 * 60 * 60 * 1_000;
     setTimeout(() => {

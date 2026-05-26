@@ -36,7 +36,7 @@ export async function getOrComputeSuggestions(
             where: { noteId_userId: { noteId, userId } },
         });
 
-        if (cached && cached.contentHash === hash) {
+        if (cached?.contentHash === hash) {
             const parsed = z.array(RelationSuggestionSchema).safeParse(cached.suggestions);
             if (parsed.success) {
                 rootLogger.info("suggestion-cache HIT", { noteId, userId });
@@ -81,14 +81,14 @@ async function computeAndPersist(
                 noteId,
                 userId,
                 contentHash,
-                suggestions: JSON.parse(JSON.stringify(suggestions)),
+                suggestions: structuredClone(suggestions),
                 model: "suggest",
                 tokensUsed: null,
                 latencyMs,
             },
             update: {
                 contentHash,
-                suggestions: JSON.parse(JSON.stringify(suggestions)),
+                suggestions: structuredClone(suggestions),
                 model: "suggest",
                 tokensUsed: null,
                 latencyMs,

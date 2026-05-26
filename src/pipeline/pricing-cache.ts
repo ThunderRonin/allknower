@@ -7,10 +7,10 @@ export interface ModelPrice {
 export const STATIC_FALLBACK_PRICING = new Map<string, ModelPrice>([
   ["openai/gpt-4o", { pricePerMInput: 2.5, pricePerMOutput: 10 }],
   ["openai/gpt-4o-mini", { pricePerMInput: 0.15, pricePerMOutput: 0.6 }],
-  ["openai/gpt-4.1", { pricePerMInput: 2.0, pricePerMOutput: 8.0 }],
+  ["openai/gpt-4.1", { pricePerMInput: 2, pricePerMOutput: 8 }],
   ["openai/gpt-4.1-mini", { pricePerMInput: 0.4, pricePerMOutput: 1.6 }],
   ["openai/gpt-4.1-nano", { pricePerMInput: 0.1, pricePerMOutput: 0.4 }],
-  ["anthropic/claude-sonnet-4-5", { pricePerMInput: 3.0, pricePerMOutput: 15 }],
+  ["anthropic/claude-sonnet-4-5", { pricePerMInput: 3, pricePerMOutput: 15 }],
   ["anthropic/claude-haiku-3.5", { pricePerMInput: 0.8, pricePerMOutput: 4 }],
   ["google/gemini-2.5-pro", { pricePerMInput: 1.25, pricePerMOutput: 10 }],
   ["google/gemini-2.5-flash", { pricePerMInput: 0.15, pricePerMOutput: 0.6 }],

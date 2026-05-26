@@ -1,4 +1,4 @@
-import { mock } from "bun:test";
+import { mock, beforeEach, describe, expect, it } from "bun:test";
 
 mock.module("../env.ts", () => ({
     env: {
@@ -81,7 +81,6 @@ mock.module("../etapi/client.ts", () => ({
     getRevisionContent: mock(async () => ""),
 }));
 
-import { beforeEach, describe, expect, it } from "bun:test";
 import {
     computeContentHash,
     getOrComputeSuggestions,

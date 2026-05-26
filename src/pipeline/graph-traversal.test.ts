@@ -239,7 +239,7 @@ describe("traverseRelationGraph", () => {
         const result = await traverseRelationGraph("A", { depth: 1 });
 
         expect(result.nodes).toHaveLength(2);
-        expect(result.nodes.map((n) => n.noteId).sort()).toEqual(["A", "C"]);
+        expect(result.nodes.map((n) => n.noteId).sort((a, b) => a.localeCompare(b))).toEqual(["A", "C"]);
         expect(result.edges).toHaveLength(2);
     });
 

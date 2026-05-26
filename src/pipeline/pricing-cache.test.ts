@@ -6,7 +6,6 @@ import {
   computeCostUsd,
   clearRuntimeCache,
   STATIC_FALLBACK_PRICING,
-  type ModelPrice,
 } from "./pricing-cache.ts";
 
 describe("pricing-cache", () => {
@@ -39,7 +38,7 @@ describe("pricing-cache", () => {
   });
 
   it("computeCostUsd calculates correctly", () => {
-    setCachedPricing("test/model", { pricePerMInput: 2.0, pricePerMOutput: 8.0 });
+    setCachedPricing("test/model", { pricePerMInput: 2, pricePerMOutput: 8 });
     const cost = computeCostUsd("test/model", 1000, 500);
     // (1000 * 2 + 500 * 8) / 1_000_000 = 6000 / 1_000_000 = 0.006
     expect(cost).toBeCloseTo(0.006, 6);

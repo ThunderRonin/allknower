@@ -18,9 +18,9 @@ export function buildPricingMap(
     const completionStr = m.pricing?.completion;
     if (!promptStr || !completionStr) continue;
 
-    const perTokenInput = parseFloat(promptStr);
-    const perTokenOutput = parseFloat(completionStr);
-    if (!isFinite(perTokenInput) || !isFinite(perTokenOutput)) continue;
+    const perTokenInput = Number.parseFloat(promptStr);
+    const perTokenOutput = Number.parseFloat(completionStr);
+    if (!Number.isFinite(perTokenInput) || !Number.isFinite(perTokenOutput)) continue;
     if (perTokenInput === 0 && perTokenOutput === 0) continue;
 
     map.set(m.id, {
@@ -89,8 +89,8 @@ export async function initPricingCacheFromDb(): Promise<void> {
     const rows = await prisma.modelPricing.findMany();
     for (const row of rows) {
       setCachedPricing(row.modelId, {
-        pricePerMInput: parseFloat(row.pricePerMInput.toString()),
-        pricePerMOutput: parseFloat(row.pricePerMOutput.toString()),
+        pricePerMInput: Number.parseFloat(row.pricePerMInput.toString()),
+        pricePerMOutput: Number.parseFloat(row.pricePerMOutput.toString()),
       });
     }
     console.log(`[pricing-fetcher] Loaded ${rows.length} prices from DB`);

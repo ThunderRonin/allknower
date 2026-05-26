@@ -101,7 +101,7 @@ export async function traverseRelationGraph(
                 // Skip self-loops
                 if (rel.value === item.noteId) continue;
 
-                const edgeKey = [item.noteId, rel.value, canonical].sort().join("::");
+                const edgeKey = [item.noteId, rel.value, canonical].sort((a, b) => a.localeCompare(b)).join("::");
                 if (edgeSeen.has(edgeKey)) continue;
                 edgeSeen.add(edgeKey);
 

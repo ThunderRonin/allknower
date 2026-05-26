@@ -9,7 +9,6 @@ import {
     setNoteTemplate,
     tagNote,
     createAttribute,
-    getAllCodexNotes,
     probeAllCodex,
     getNoteContent,
     getNoteRevisions,
@@ -74,6 +73,7 @@ async function findDuplicates(title: string, _type: string, userId?: string): Pr
             .filter((r) => r.score > DUPLICATE_SIMILARITY_THRESHOLD)
             .map((r) => ({ noteId: r.noteId, title: r.noteTitle, score: r.score }));
     } catch {
+        // intentional: fire-and-forget — duplicates are advisory, not blocking
         return [];
     }
 }
@@ -387,7 +387,7 @@ async function _writeEntitiesToAllCodex(
                 try {
                     contentBefore = await getNoteContent(entity.existingNoteId, credentials);
                 } catch (e) {
-                    rootLogger.warn("Failed to fetch note content before update", { noteId: entity.existingNoteId });
+                    rootLogger.warn("Failed to fetch note content before update", { noteId: entity.existingNoteId, error: e instanceof Error ? e.message : String(e) });
                 }
 
                 let revisionIdBefore: string | null = null;

@@ -266,6 +266,7 @@ describe("Brain dump routes", () => {
                 BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
             },
             runBrainDumpStreamImpl: (async function* () {
+                yield; // satisfy generator contract before throwing
                 throw new Error("Pipeline failure");
             }) as any,
             firePushNotificationsImpl: async (userId, payload) => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { buildPricingMap } from "./pricing-fetcher.ts";
 
 // We only unit test buildPricingMap here — fetchAndCachePricing and initPricingCacheFromDb

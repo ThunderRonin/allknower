@@ -24,7 +24,8 @@ async function main() {
 
   let updated = 0;
   for (const row of rows) {
-    const cost = computeCostUsd(row.model, row.inputTokens!, row.outputTokens!);
+    if (row.inputTokens == null || row.outputTokens == null) continue;
+    const cost = computeCostUsd(row.model, row.inputTokens, row.outputTokens);
     if (cost > 0) {
       await prisma.lLMCallLog.update({
         where: { id: row.id },
@@ -37,6 +38,10 @@ async function main() {
   console.log(`Backfilled ${updated} / ${rows.length} rows`);
 }
 
-main()
-  .catch(console.error)
-  .finally(() => prisma.$disconnect());
+try {
+  await main();
+} catch (e) {
+  console.error(e);
+} finally {
+  await prisma.$disconnect();
+}

@@ -261,7 +261,7 @@ export async function queryLore(
         noteId: row.noteId as string,
         noteTitle: row.noteTitle as string,
         content: row.content as string,
-        score: 0.0, // Rank-based merged score will override this
+        score: 0, // Rank-based merged score will override this
     }));
 
     // 2. Merge candidates using Reciprocal Rank Fusion (RRF)
@@ -317,7 +317,12 @@ export async function queryLore(
 
     // 3. Rerank via OpenRouter native rerank endpoint
     let reranked = false;
-    if (env.RAG_RERANK_ENABLED !== "false") {
+    if (env.RAG_RERANK_ENABLED === "false") {
+        rootLogger.info("Reranking skipped", {
+            reason: "RAG_RERANK_ENABLED=false",
+            query: queryText.slice(0, 60),
+        });
+    } else {
         try {
             const rerankResult = await rerankWithOpenRouter(queryText, candidates);
             candidates = rerankResult.candidates;
@@ -334,11 +339,6 @@ export async function queryLore(
                 error: e instanceof Error ? e.message : String(e),
             });
         }
-    } else {
-        rootLogger.info("Reranking skipped", {
-            reason: "RAG_RERANK_ENABLED=false",
-            query: queryText.slice(0, 60),
-        });
     }
 
     // If reranked, filter out low relevance scores

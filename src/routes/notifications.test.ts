@@ -1,4 +1,4 @@
-import { mock } from "bun:test";
+import { mock, describe, it, expect, beforeEach, afterEach } from "bun:test";
 
 // ── Mock DB client ────────────────────────────────────────────────────────────
 const upsertMock = mock(async () => ({}));
@@ -14,7 +14,6 @@ mock.module("../db/client.ts", () => ({
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────────────
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Elysia } from "elysia";
 import { createNotificationsRoute } from "./notifications.ts";
 import { requireAuthBypass } from "../../test/helpers/auth.ts";

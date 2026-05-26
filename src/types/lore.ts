@@ -24,7 +24,11 @@ const optStr = z
  */
 const coerceToString = z
     .union([z.string(), z.array(z.string()), z.null()])
-    .transform((v) => (v === null ? undefined : Array.isArray(v) ? v.join(", ") : v))
+    .transform((v) => {
+        if (v === null) return undefined;
+        if (Array.isArray(v)) return v.join(", ");
+        return v;
+    })
     .optional();
 
 /**

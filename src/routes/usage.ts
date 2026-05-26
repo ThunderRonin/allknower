@@ -56,7 +56,7 @@ export function createUsageRoute({
         ]);
 
         const totalTokens = totalAgg._sum.tokensUsed ?? 0;
-        const totalCostUsd = parseFloat((totalAgg._sum.costUsd ?? 0).toString());
+        const totalCostUsd = Number.parseFloat((totalAgg._sum.costUsd ?? 0).toString());
         const avgLatency = Math.round(totalAgg._avg.latencyMs ?? 0);
         const totalRequests = totalAgg._count;
 
@@ -72,7 +72,7 @@ export function createUsageRoute({
           const entry = dailyMap.get(day);
           if (entry) {
             entry.tokens += log.tokensUsed;
-            entry.cost += log.costUsd ? parseFloat(log.costUsd.toString()) : 0;
+            entry.cost += log.costUsd ? Number.parseFloat(log.costUsd.toString()) : 0;
             entry.count++;
           }
         }
@@ -88,7 +88,7 @@ export function createUsageRoute({
         for (const log of logs) {
           const t = taskMap.get(log.task) ?? { tokens: 0, cost: 0, count: 0, latencySum: 0 };
           t.tokens += log.tokensUsed;
-          t.cost += log.costUsd ? parseFloat(log.costUsd.toString()) : 0;
+          t.cost += log.costUsd ? Number.parseFloat(log.costUsd.toString()) : 0;
           t.count++;
           t.latencySum += log.latencyMs;
           taskMap.set(log.task, t);
@@ -106,7 +106,7 @@ export function createUsageRoute({
         for (const log of logs) {
           const m = modelMap.get(log.model) ?? { tokens: 0, cost: 0, count: 0 };
           m.tokens += log.tokensUsed;
-          m.cost += log.costUsd ? parseFloat(log.costUsd.toString()) : 0;
+          m.cost += log.costUsd ? Number.parseFloat(log.costUsd.toString()) : 0;
           m.count++;
           modelMap.set(log.model, m);
         }
@@ -162,8 +162,8 @@ export function createUsageRoute({
         return { dailyBudgetUsd: null, monthlyBudgetUsd: null, alertEmail: null };
       }
       return {
-        dailyBudgetUsd: budget.dailyBudgetUsd ? parseFloat(budget.dailyBudgetUsd.toString()) : null,
-        monthlyBudgetUsd: budget.monthlyBudgetUsd ? parseFloat(budget.monthlyBudgetUsd.toString()) : null,
+        dailyBudgetUsd: budget.dailyBudgetUsd ? Number.parseFloat(budget.dailyBudgetUsd.toString()) : null,
+        monthlyBudgetUsd: budget.monthlyBudgetUsd ? Number.parseFloat(budget.monthlyBudgetUsd.toString()) : null,
         alertEmail: budget.alertEmail,
       };
     })

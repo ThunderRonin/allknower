@@ -28,10 +28,10 @@ export async function getAlertStatus(userId: string): Promise<AlertStatus> {
     }),
   ]);
 
-  const dailySpendUsd = parseFloat((dailyAgg._sum.costUsd ?? 0).toString());
-  const monthlySpendUsd = parseFloat((monthlyAgg._sum.costUsd ?? 0).toString());
-  const dailyBudgetUsd = budget?.dailyBudgetUsd ? parseFloat(budget.dailyBudgetUsd.toString()) : null;
-  const monthlyBudgetUsd = budget?.monthlyBudgetUsd ? parseFloat(budget.monthlyBudgetUsd.toString()) : null;
+  const dailySpendUsd = Number.parseFloat((dailyAgg._sum.costUsd ?? 0).toString());
+  const monthlySpendUsd = Number.parseFloat((monthlyAgg._sum.costUsd ?? 0).toString());
+  const dailyBudgetUsd = budget?.dailyBudgetUsd ? Number.parseFloat(budget.dailyBudgetUsd.toString()) : null;
+  const monthlyBudgetUsd = budget?.monthlyBudgetUsd ? Number.parseFloat(budget.monthlyBudgetUsd.toString()) : null;
 
   return {
     configured: !!budget,

@@ -84,8 +84,8 @@ export function createMetricsRoute({ requireAuthImpl = requireAuth }: MetricsRou
             const [task, model] = key.split("::");
             const sum = arr.reduce((a, b) => a + b, 0);
             const avg = Math.round(sum / arr.length);
-            const p50 = getPercentile(arr, 0.50);
-            const p90 = getPercentile(arr, 0.90);
+            const p50 = getPercentile(arr, 0.5);
+            const p90 = getPercentile(arr, 0.9);
             const p95 = getPercentile(arr, 0.95);
             return {
                 task,

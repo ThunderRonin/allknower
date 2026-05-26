@@ -353,10 +353,10 @@ export function createBrainDumpRoute({
             set.status = 404;
             return { error: "BATCH_NOT_FOUND" };
         }
-        const counts = jobs.reduce((acc, j) => {
+        const counts = jobs.reduce<Record<string, number>>((acc, j) => {
             acc[j.status] = (acc[j.status] ?? 0) + 1;
             return acc;
-        }, {} as Record<string, number>);
+        }, {});
         const terminal = (counts.queued ?? 0) === 0 && (counts.running ?? 0) === 0;
         return { batchId: params.batchId, jobs, counts, terminal };
     }, {
