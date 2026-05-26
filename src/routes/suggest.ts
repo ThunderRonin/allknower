@@ -24,7 +24,7 @@ const GAP_DETECT_MAX_PROMOTED_ATTRS = 3;
 const GAP_DETECT_USER_PROMPT =
     "Analyze this lore corpus against the core worldbuilding pillars. Return at most 5 gaps. Keep each description and suggestion concise.";
 
-async function runGapDetect(credentials: EtapiCredentials) {
+async function runGapDetect(credentials: EtapiCredentials, userId?: string) {
     const notes = await getAllCodexNotes("#lore", credentials);
 
     const typeCounts: Record<string, number> = {};
@@ -74,6 +74,7 @@ async function runGapDetect(credentials: EtapiCredentials) {
         timeoutMs: GAP_DETECT_TIMEOUT_MS,
         maxTokens: GAP_DETECT_MAX_TOKENS,
         temperature: 0.1,
+        userId,
     });
 
     let result: unknown;
@@ -228,7 +229,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
         "/gaps",
         async ({ session }) => {
             const credentials = await resolveAllCodexCredentials(session!.user.id);
-            return runGapDetect(credentials);
+            return runGapDetect(credentials, session!.user.id);
         },
         {
             detail: {
@@ -299,7 +300,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .get(
         "/autocomplete",
-        async ({ query }) => {
+        async ({ query, session }) => {
             const q = query.q;
             const limit = Number(query.limit ?? 10);
 
@@ -320,7 +321,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
             // Phase 2: semantic fill if prefix didn't saturate the limit
             if (suggestions.length < limit) {
                 const remaining = limit - suggestions.length;
-                const semantic = await queryLore(q, remaining + seen.size);
+                const semantic = await queryLore(q, remaining + seen.size, { userId: session?.user?.id });
                 for (const chunk of semantic) {
                     if (!seen.has(chunk.noteId)) {
                         suggestions.push({ noteId: chunk.noteId, title: chunk.noteTitle });
@@ -336,7 +337,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                 const indexCount = await prisma.ragIndexMeta.count();
                 if (indexCount >= MIN_INDEX_SIZE_FOR_LLM_AUTOCOMPLETE) {
                     try {
-                        const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
+                        const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete", undefined, { userId: session?.user?.id });
                         const parsed = JSON.parse(raw);
                         for (const s of (parsed.suggestions ?? [])) {
                             if (suggestions.length >= limit) break;
@@ -376,7 +377,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
      */
     .get(
         "/autocomplete/stream",
-        async ({ query, set }) => {
+        async ({ query, set, session }) => {
             const q = query.q;
             const limit = Number(query.limit ?? 10);
 
@@ -415,7 +416,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                         // Phase 2: semantic fill
                         if (suggestions.length < limit) {
                             const remaining = limit - suggestions.length;
-                            const semantic = await queryLore(q, remaining + seen.size);
+                            const semantic = await queryLore(q, remaining + seen.size, { userId: session?.user?.id });
                             const newSuggestions: typeof suggestions = [];
                             for (const chunk of semantic) {
                                 if (!seen.has(chunk.noteId)) {
@@ -437,7 +438,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
                             const indexCount = await prisma.ragIndexMeta.count();
                             if (indexCount >= MIN_INDEX_SIZE) {
                                 try {
-                                    const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete");
+                                    const { raw } = await callLLM(AUTOCOMPLETE_SYSTEM, `Complete: "${q}"`, "autocomplete", undefined, { userId: session?.user?.id });
                                     const parsed = JSON.parse(raw);
                                     const llmSuggestions: typeof suggestions = [];
                                     for (const s of (parsed.suggestions ?? [])) {

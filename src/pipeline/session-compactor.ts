@@ -74,6 +74,7 @@ Return JSON matching this exact schema:
 
 interface LoreSessionRecord {
     id: string;
+    userId?: string | null;
     state: unknown;
     tokensAccumulated: number;
     compactionCount: number;
@@ -133,6 +134,7 @@ export async function compactSession(session: LoreSessionRecord): Promise<LoreSe
         const { raw } = await callWithFallback("session-compact", llmMessages, {
             maxTokens: 4096,
             temperature: 0.1,
+            userId: session.userId || undefined,
         });
 
         // Validate output

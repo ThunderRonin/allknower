@@ -228,6 +228,7 @@ export async function callLLM(
         temperature?: number;
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
+        userId?: string;
     }
 ): Promise<{ raw: string; tokensUsed: number; model: string; latencyMs: number }> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string; cache_control?: { type: string } }> = [
@@ -262,6 +263,7 @@ export async function callLLM(
         responseFormat,
         reasoning: options?.reasoning,
         modelOverride: options?.modelOverride,
+        userId: options?.userId,
     });
 }
 
@@ -285,6 +287,7 @@ export async function* callLLMStream(
         temperature?: number;
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
+        userId?: string;
     }
 ): AsyncGenerator<StreamChunk> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -305,5 +308,6 @@ export async function* callLLMStream(
         responseFormat,
         reasoning: options?.reasoning,
         modelOverride: options?.modelOverride,
+        userId: options?.userId,
     });
 }

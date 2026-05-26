@@ -27,9 +27,10 @@ import { getCoreRelationName, isCanonicalRelationshipType } from "../relationshi
 export async function suggestRelationsForNote(
     noteId: string,
     noteContent: string,
-    credentials?: EtapiCredentials
+    credentials?: EtapiCredentials,
+    userId?: string
 ): Promise<RelationSuggestion[]> {
-    const similar = await queryLore(noteContent, 15);
+    const similar = await queryLore(noteContent, 15, { userId });
 
     if (similar.length === 0) {
         rootLogger.warn("suggestRelationsForNote: queryLore returned 0 results — LanceDB may be empty or all candidates below threshold. Run POST /rag/reindex to populate the index.", {
@@ -50,6 +51,7 @@ export async function suggestRelationsForNote(
 
     const { raw } = await callLLM(SUGGEST_RELATIONS_SYSTEM, user, "suggest", context, {
         jsonSchema: SUGGEST_RELATIONS_JSON_SCHEMA,
+        userId,
     });
 
     try {

@@ -71,7 +71,7 @@ async function computeAndPersist(
     credentials?: EtapiCredentials,
 ): Promise<RelationSuggestion[]> {
     const start = performance.now();
-    const suggestions = await suggestRelationsForNote(noteId, text, credentials);
+    const suggestions = await suggestRelationsForNote(noteId, text, credentials, userId);
     const latencyMs = Math.round(performance.now() - start);
 
     try {

@@ -232,7 +232,7 @@ export function createCopilotRoute({
             const { compactedRequest, loreSession } = prep;
 
             // Run LLM
-            const response = await runArticleCopilotTurn(compactedRequest);
+            const response = await runArticleCopilotTurn(compactedRequest, session!.user.id);
 
             // Persist assistant message + update token accumulator
             await persistAssistantMessage(loreSession.id, response.assistantMessage);
@@ -278,7 +278,7 @@ export function createCopilotRoute({
                     try {
                         send("status", { stage: "llm", message: "Generating response..." });
 
-                        for await (const chunk of runArticleCopilotStream(compactedRequest)) {
+                        for await (const chunk of runArticleCopilotStream(compactedRequest, session!.user.id)) {
                             if (chunk.type === "token") {
                                 assistantContent += chunk.content;
                                 send("token", { content: chunk.content });
