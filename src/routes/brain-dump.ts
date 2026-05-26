@@ -38,6 +38,7 @@ export function createBrainDumpRoute({
     .use(background())
     .use(
         rateLimit({
+            scoping: "scoped",
             max: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_MAX,
             duration: rateLimitEnv.BRAIN_DUMP_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(

@@ -157,6 +157,7 @@ export function createConsistencyRoute({
         .use(requireAuthImpl)
         .use(
         rateLimit({
+            scoping: "scoped",
             max: env.AI_RATE_LIMIT_MAX,
             duration: env.AI_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(
