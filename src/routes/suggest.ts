@@ -498,6 +498,7 @@ export const suggestRoute = new Elysia({ prefix: "/suggest" })
             const limit = Number(query.limit ?? 20);
             const entries = await prisma.relationHistory.findMany({
                 where: {
+                    userId,
                     OR: [
                         { sourceNoteId: params.noteId },
                         { targetNoteId: params.noteId },

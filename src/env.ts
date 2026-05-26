@@ -64,12 +64,12 @@ export const envSchema = z.object({
     AUTOCOMPLETE_FALLBACK_3: z.string().default(""),
 
     RERANK_MODEL: z.string().default("cohere/rerank-4-pro"),
-    RAG_HYBRID_VECTOR_K: z.coerce.number().optional().default(0),
-    RAG_HYBRID_BM25_K: z.coerce.number().optional().default(0),
-    RAG_HYBRID_RRF_K: z.coerce.number().optional().default(60),
-    RAG_VECTOR_SIMILARITY_THRESHOLD: z.coerce.number().optional().default(0.3),
-    RAG_RERANK_TOP_N: z.coerce.number().optional().default(10),
-    RAG_RERANK_DOC_MAX_CHARS: z.coerce.number().optional().default(2048),
+    RAG_HYBRID_VECTOR_K: z.coerce.number().optional().default(0).pipe(z.number().int().nonnegative()),
+    RAG_HYBRID_BM25_K: z.coerce.number().optional().default(0).pipe(z.number().int().nonnegative()),
+    RAG_HYBRID_RRF_K: z.coerce.number().optional().default(60).pipe(z.number().int().positive()),
+    RAG_VECTOR_SIMILARITY_THRESHOLD: z.coerce.number().optional().default(0.3).pipe(z.number().min(0).max(1)),
+    RAG_RERANK_TOP_N: z.coerce.number().optional().default(10).pipe(z.number().int().positive()),
+    RAG_RERANK_DOC_MAX_CHARS: z.coerce.number().optional().default(2048).pipe(z.number().int().positive()),
     RAG_RERANK_ENABLED: z.string().default("true"),
 
     // Embedding Models

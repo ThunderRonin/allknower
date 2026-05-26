@@ -27,6 +27,8 @@ export async function sendEmail({
   });
 
   if (!res.ok) {
-    throw new Error(`Resend ${res.status}: ${await res.text()}`);
+    const body = await res.text();
+    console.error(`Resend API error ${res.status}:`, body);
+    throw new Error(`Failed to send email (status ${res.status})`);
   }
 }

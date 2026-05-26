@@ -11,7 +11,8 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     .post(
         "/query",
         async ({ body, session }) => {
-            const chunks = await queryLore(body.text, body.topK ?? 10, { userId: session?.user?.id });
+            const userId = session!.user.id;
+            const chunks = await queryLore(body.text, body.topK ?? 10, { userId });
             return { results: chunks };
         },
         {

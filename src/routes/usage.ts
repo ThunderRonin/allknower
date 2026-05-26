@@ -21,11 +21,16 @@ export function createUsageRoute({
 
     .get(
       "/summary",
-      async ({ query, session }) => {
+      async ({ query, session, set }) => {
         const userId = session!.user.id;
         const now = new Date();
         const from = query.from ? new Date(query.from) : new Date(now.getTime() - 30 * 86_400_000);
         const to = query.to ? new Date(query.to) : now;
+
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+          set.status = 400;
+          return { error: "INVALID_DATE_RANGE", message: "Query params 'from' and 'to' must be valid dates." };
+        }
 
         const where: Prisma.LLMCallLogWhereInput = {
           userId,
@@ -197,7 +202,11 @@ export function createUsageRoute({
       return getAlertStatusImpl(session!.user.id);
     })
 
-    .post("/refresh-pricing", async () => {
+    .post("/refresh-pricing", async ({ set }) => {
+      if (process.env.NODE_ENV === "production") {
+        set.status = 403;
+        return { error: "FORBIDDEN", message: "Pricing refresh is internal-only" };
+      }
       await fetchAndCachePricingImpl();
       return { ok: true };
     });

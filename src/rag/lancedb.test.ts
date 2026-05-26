@@ -19,6 +19,8 @@ mock.module("../env.ts", () => ({
         RAG_RERANK_TOP_N: 10,
         RAG_RERANK_DOC_MAX_CHARS: 2048,
         RAG_RERANK_ENABLED: "false",
+        DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+        NODE_ENV: "test",
     },
 }));
 

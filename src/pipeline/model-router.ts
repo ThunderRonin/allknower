@@ -385,7 +385,7 @@ function logLLMCall(
     data: { requestId?: string; task: string; model: string; tokensUsed: number; inputTokens?: number; outputTokens?: number; latencyMs: number; userId?: string },
     log: Logger
 ): void {
-    const costUsd = (data.inputTokens && data.outputTokens)
+    const costUsd = (data.inputTokens != null && data.outputTokens != null)
         ? computeCostUsd(data.model, data.inputTokens, data.outputTokens)
         : undefined;
 

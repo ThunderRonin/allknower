@@ -13,8 +13,8 @@ export function computeContentHash(text: string): string {
     return createHash("sha256").update(text).digest("hex");
 }
 
-function inflightKey(noteId: string, userId: string): string {
-    return `${noteId}::${userId}`;
+function inflightKey(noteId: string, userId: string, contentHash: string): string {
+    return `${noteId}::${userId}::${contentHash}`;
 }
 
 export interface GetOrComputeOptions {
@@ -46,7 +46,7 @@ export async function getOrComputeSuggestions(
         }
     }
 
-    const key = inflightKey(noteId, userId);
+    const key = inflightKey(noteId, userId, hash);
     const existing = inflight.get(key);
     if (existing) {
         rootLogger.info("suggestion-cache dedup — joining inflight request", { noteId });

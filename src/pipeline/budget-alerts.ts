@@ -14,8 +14,8 @@ export async function getAlertStatus(userId: string): Promise<AlertStatus> {
   const budget = await prisma.userBudget.findUnique({ where: { userId } });
 
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
   const [dailyAgg, monthlyAgg] = await Promise.all([
     prisma.lLMCallLog.aggregate({
@@ -45,7 +45,9 @@ export async function getAlertStatus(userId: string): Promise<AlertStatus> {
 }
 
 export async function dispatchDailyDigests(): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const today = startOfDay.toISOString().slice(0, 10);
 
   const budgets = await prisma.userBudget.findMany({
     where: {

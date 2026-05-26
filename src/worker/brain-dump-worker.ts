@@ -8,8 +8,9 @@ const POLL_INTERVAL_MS = 2_000;
 let running = false;
 
 export async function recoverStaleJobs(): Promise<number> {
+    const staleBefore = new Date(Date.now() - 15 * 60_000);
     const result = await prisma.brainDumpJob.updateMany({
-        where: { status: "running" },
+        where: { status: "running", startedAt: { lt: staleBefore } },
         data: { status: "queued", startedAt: null },
     });
     if (result.count > 0) log.warn("Recovered stale jobs", { count: result.count });
@@ -17,20 +18,19 @@ export async function recoverStaleJobs(): Promise<number> {
 }
 
 async function processNextJob(): Promise<boolean> {
-    const claimed = await prisma.$transaction(async (tx) => {
-        const next = await tx.brainDumpJob.findFirst({
-            where: { status: "queued" },
-            orderBy: { createdAt: "asc" },
-        });
-        if (!next) return null;
-        await tx.brainDumpJob.update({
-            where: { id: next.id },
-            data: { status: "running", startedAt: new Date() },
-        });
-        return next;
+    const next = await prisma.brainDumpJob.findFirst({
+        where: { status: "queued" },
+        orderBy: { createdAt: "asc" },
     });
+    if (!next) return false;
 
-    if (!claimed) return false;
+    const claim = await prisma.brainDumpJob.updateMany({
+        where: { id: next.id, status: "queued" },
+        data: { status: "running", startedAt: new Date() },
+    });
+    if (claim.count === 0) return true; // already claimed by another worker, retry loop
+
+    const claimed = next;
 
     try {
         const credentials = await resolveAllCodexCredentials(claimed.userId);

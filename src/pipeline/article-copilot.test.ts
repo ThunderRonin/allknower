@@ -68,7 +68,7 @@ describe("runArticleCopilotTurn", () => {
             latencyMs: 20,
         });
 
-        const result = await runArticleCopilotTurn(baseInput);
+        const result = await runArticleCopilotTurn(baseInput, "user-1");
 
         expect(result.proposal).toBeNull();
         expect(result.citations).toHaveLength(1);
@@ -82,7 +82,7 @@ describe("runArticleCopilotTurn", () => {
             latencyMs: 3,
         });
 
-        await expect(runArticleCopilotTurn(baseInput)).rejects.toThrow("invalid JSON");
+        await expect(runArticleCopilotTurn(baseInput, "user-1")).rejects.toThrow("invalid JSON");
     });
 
     it("rejects proposals that target notes outside writableTargetIds", async () => {
@@ -110,7 +110,7 @@ describe("runArticleCopilotTurn", () => {
             latencyMs: 5,
         });
 
-        await expect(runArticleCopilotTurn(baseInput)).rejects.toThrow("outside the writable scope");
+        await expect(runArticleCopilotTurn(baseInput, "user-1")).rejects.toThrow("outside the writable scope");
     });
 
     it("accepts proposals that update a supplied writable linked note", async () => {
@@ -138,7 +138,7 @@ describe("runArticleCopilotTurn", () => {
             latencyMs: 5,
         });
 
-        const result = await runArticleCopilotTurn(baseInput);
+        const result = await runArticleCopilotTurn(baseInput, "user-1");
 
         expect(result.proposal?.targets[0].targetId).toBe("note-linked");
     });
@@ -170,6 +170,6 @@ describe("runArticleCopilotTurn", () => {
             latencyMs: 5,
         });
 
-        await expect(runArticleCopilotTurn(baseInput)).rejects.toThrow("must link directly to the current article");
+        await expect(runArticleCopilotTurn(baseInput, "user-1")).rejects.toThrow("must link directly to the current article");
     });
 });

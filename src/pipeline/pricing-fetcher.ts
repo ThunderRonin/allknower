@@ -68,7 +68,12 @@ export async function fetchAndCachePricing(): Promise<void> {
 
   const BATCH_SIZE = 50;
   for (let i = 0; i < upserts.length; i += BATCH_SIZE) {
-    await Promise.all(upserts.slice(i, i + BATCH_SIZE));
+    const settled = await Promise.allSettled(upserts.slice(i, i + BATCH_SIZE));
+    for (const r of settled) {
+      if (r.status === "rejected") {
+        console.warn("[pricing-fetcher] Failed to upsert model pricing row:", r.reason);
+      }
+    }
   }
 
   for (const [modelId, price] of STATIC_FALLBACK_PRICING) {

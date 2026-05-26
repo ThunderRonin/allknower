@@ -155,10 +155,11 @@ export function createBrainDumpRoute({
                         }
                     } catch (e) {
                         const errMsg = e instanceof Error ? e.message : String(e);
-                        send("error", { type: "error", error: errMsg });
+                        console.error("[brain-dump] SSE error:", errMsg, e);
+                        send("error", { type: "error", code: "BRAIN_DUMP_FAILED", message: "Unable to complete brain dump." });
                         firePushNotificationsImpl(userId, {
                             title: "Brain Dump Failed",
-                            body: errMsg,
+                            body: "Unable to complete brain dump.",
                             href: "/brain-dump",
                         }).catch(() => {});
                     } finally {
@@ -335,7 +336,7 @@ export function createBrainDumpRoute({
     }, {
         body: t.Object({
             items: t.Array(t.Object({
-                rawText: t.String({ minLength: 1 }),
+                rawText: t.String({ minLength: 10, maxLength: 50000 }),
                 parentNoteId: t.Optional(t.String()),
                 mode: t.Optional(t.Union([t.Literal("auto"), t.Literal("review")])),
             }), { minItems: 1, maxItems: 50 }),

@@ -12,9 +12,13 @@ export interface PushPayload {
 }
 
 let vapidConfigured = false;
-if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
-    webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
-    vapidConfigured = true;
+if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT) {
+    try {
+        webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
+        vapidConfigured = true;
+    } catch (err) {
+        console.error("[push-notify] Failed to configure VAPID:", err);
+    }
 }
 
 export async function firePushNotifications(userId: string, payload: PushPayload): Promise<void> {

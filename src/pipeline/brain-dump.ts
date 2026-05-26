@@ -518,31 +518,33 @@ async function _writeEntitiesToAllCodex(
     // Persist to history — only cache runs that actually wrote something,
     // so failed runs (e.g. AllCodex down) can be retried with the same text.
     if (created.length > 0 || updated.length > 0) {
-        await prisma.brainDumpHistory.create({
-            data: {
-                id: historyId,
-                rawText,
-                rawTextHash,
-                parsedJson: JSON.parse(JSON.stringify({
-                    entities: entities.map(e => {
-                        const c = created.find(n => n.title === e.title);
-                        const u = updated.find(n => n.title === e.title);
-                        return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
-                    }),
-                    summary,
-                    revisions,
-                })),
-                notesCreated: created.map((n) => n.noteId),
-                notesUpdated: updated.map((n) => n.noteId),
-                model,
-                tokensUsed,
-                userId,
-            },
-        });
+        await prisma.$transaction(async (tx) => {
+            await tx.brainDumpHistory.create({
+                data: {
+                    id: historyId,
+                    rawText,
+                    rawTextHash,
+                    parsedJson: JSON.parse(JSON.stringify({
+                        entities: entities.map(e => {
+                            const c = created.find(n => n.title === e.title);
+                            const u = updated.find(n => n.title === e.title);
+                            return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
+                        }),
+                        summary,
+                        revisions,
+                    })),
+                    notesCreated: created.map((n) => n.noteId),
+                    notesUpdated: updated.map((n) => n.noteId),
+                    model,
+                    tokensUsed,
+                    userId,
+                },
+            });
 
-        if (revisionLinks.length > 0) {
-            await prisma.brainDumpRevisionLink.createMany({ data: revisionLinks });
-        }
+            if (revisionLinks.length > 0) {
+                await tx.brainDumpRevisionLink.createMany({ data: revisionLinks });
+            }
+        });
     }
 
     return {

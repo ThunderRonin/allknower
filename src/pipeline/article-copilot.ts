@@ -192,7 +192,7 @@ function buildCopilotMessages(input: ArticleCopilotRequest): Array<{ role: "syst
  * @returns The validated `ArticleCopilotResponse` produced by the model
  * @throws Error if the model returns invalid JSON that cannot be parsed
  */
-export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest, userId?: string): Promise<ArticleCopilotResponse> {
+export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest, userId: string): Promise<ArticleCopilotResponse> {
     const input = ArticleCopilotRequestSchema.parse(rawInput);
     const messages = buildCopilotMessages(input);
 
@@ -223,7 +223,7 @@ export async function runArticleCopilotTurn(rawInput: ArticleCopilotRequest, use
 
 export async function* runArticleCopilotStream(
     rawInput: ArticleCopilotRequest,
-    userId?: string,
+    userId: string,
 ): AsyncGenerator<StreamChunk> {
     const input = ArticleCopilotRequestSchema.parse(rawInput);
     const messages = buildCopilotMessages(input);
