@@ -7,7 +7,7 @@
       "dependencies": {
         "@bogeychan/elysia-etag": "^0.1.0",
         "@elysiajs/openapi": "^1.4.14",
-        "@lancedb/lancedb": "^0.27.1",
+        "@lancedb/lancedb": "^0.29.0",
         "@openrouter/sdk": "~0.10.2",
         "@prisma/client": "^6.3.0",
         "apache-arrow": "^21.1.0",
@@ -68,21 +68,21 @@
 
     "@elysiajs/openapi": ["@elysiajs/openapi@1.4.14", "", { "peerDependencies": { "elysia": ">= 1.4.0" } }, "sha512-kWmJWdvP8/LwHwAJXSpz6xFfYUoyUyEPRimEYABuDU1rOnS27Da1u9T2jyU7frOopxKWV/wDfDxMP8z2xdCPJw=="],
 
-    "@lancedb/lancedb": ["@lancedb/lancedb@0.27.1", "", { "dependencies": { "reflect-metadata": "^0.2.2" }, "optionalDependencies": { "@lancedb/lancedb-darwin-arm64": "0.27.1", "@lancedb/lancedb-linux-arm64-gnu": "0.27.1", "@lancedb/lancedb-linux-arm64-musl": "0.27.1", "@lancedb/lancedb-linux-x64-gnu": "0.27.1", "@lancedb/lancedb-linux-x64-musl": "0.27.1", "@lancedb/lancedb-win32-arm64-msvc": "0.27.1", "@lancedb/lancedb-win32-x64-msvc": "0.27.1" }, "peerDependencies": { "apache-arrow": ">=15.0.0 <=18.1.0" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "x64", "arm64", ] }, "sha512-LqXw19VYXaG1bV/03wN5JrYOSrRv38RPbKHW0hukbyfsNV4+VuZ3VpObk3gDeJGPkkJ56MS3lbbB2pqqg1DiNQ=="],
+    "@lancedb/lancedb": ["@lancedb/lancedb@0.29.0", "", { "dependencies": { "reflect-metadata": "^0.2.2" }, "optionalDependencies": { "@lancedb/lancedb-darwin-arm64": "0.29.0", "@lancedb/lancedb-linux-arm64-gnu": "0.29.0", "@lancedb/lancedb-linux-arm64-musl": "0.29.0", "@lancedb/lancedb-linux-x64-gnu": "0.29.0", "@lancedb/lancedb-linux-x64-musl": "0.29.0", "@lancedb/lancedb-win32-arm64-msvc": "0.29.0", "@lancedb/lancedb-win32-x64-msvc": "0.29.0" }, "peerDependencies": { "apache-arrow": ">=15.0.0 <=18.1.0" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "x64", "arm64", ] }, "sha512-lqg2QVs+yriRZ30I1fqnR8qHTR8olSx+9gY7PKvbk19kjP9Ei3uvYhtNsoqdfaF8sdCXML9RczGP9HPYepF2yw=="],
 
-    "@lancedb/lancedb-darwin-arm64": ["@lancedb/lancedb-darwin-arm64@0.27.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-yF9N0Kyq2uIlfaoAoxBrCJ5M3cLRB+Iwx/uvwtt99UMZ5ZbUFXgMzJb8FYJwj/5voteal+53jQcbIbAH41MwUw=="],
+    "@lancedb/lancedb-darwin-arm64": ["@lancedb/lancedb-darwin-arm64@0.29.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-LzI8+2WKRBGmLbOBe/ojya1ihIGWD7lz9cKGOnCKZ4Wvnqm4RRhyL0r4ukAgmhgJGrVIbZj+juwgSs+NDErLcw=="],
 
-    "@lancedb/lancedb-linux-arm64-gnu": ["@lancedb/lancedb-linux-arm64-gnu@0.27.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-7P7TKxHjn7wfa7SQuDfxPU+DMt6thZJE0ccvc9RSifFVd8OxJdsWa2hvopsR3r985t68ggx8GjhW81ILr4iJ8w=="],
+    "@lancedb/lancedb-linux-arm64-gnu": ["@lancedb/lancedb-linux-arm64-gnu@0.29.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-y9hFXWVDJNxxpvR1XRrxSslFwIwBiXXDTwYQl/aKoIQ5irG1PdqKsnvCPGcIR01WhLlog12AGytby01lYuE7FA=="],
 
-    "@lancedb/lancedb-linux-arm64-musl": ["@lancedb/lancedb-linux-arm64-musl@0.27.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-qD/6iRwi18y3QgWlydZ3KwC5PNMkGuKP9UZI1NGt/37S9DdRDgPDoKD67ftdc4HOVeg4gffEsaxoV781Sfdc9Q=="],
+    "@lancedb/lancedb-linux-arm64-musl": ["@lancedb/lancedb-linux-arm64-musl@0.29.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-fZ8Y4pzm/xfkSKhgZ289puaShckAOwd8s1mt5mHNDC8IuAaBmA6YxpDEQCItiDX1CNgsN+L7BFZWu11x+gsDPQ=="],
 
-    "@lancedb/lancedb-linux-x64-gnu": ["@lancedb/lancedb-linux-x64-gnu@0.27.1", "", { "os": "linux", "cpu": "x64" }, "sha512-5ciKVaUH/tuBR2hAeM/4se+C18YsbNjgUDq4kxGfMh+/YI2v4Gl7mniYKh9jx93S2lQJJsVowqWGnOdkNB0Zhw=="],
+    "@lancedb/lancedb-linux-x64-gnu": ["@lancedb/lancedb-linux-x64-gnu@0.29.0", "", { "os": "linux", "cpu": "x64" }, "sha512-1JLQohd/MKyAVVaO2unM66e80jm9F7CE1xCRlml+BNKUXReDI4m3Jg7DZLzor+jPs2+Si3dIwXa2Rzs/9plr5g=="],
 
-    "@lancedb/lancedb-linux-x64-musl": ["@lancedb/lancedb-linux-x64-musl@0.27.1", "", { "os": "linux", "cpu": "x64" }, "sha512-eeXZsryHux4bg03nPAkNzgL9Zp6cXMvizYxQ0N6mdcpumnkoRoJC3VqwUzaeplMzqMhjATmoaes4GkTRzHsVwA=="],
+    "@lancedb/lancedb-linux-x64-musl": ["@lancedb/lancedb-linux-x64-musl@0.29.0", "", { "os": "linux", "cpu": "x64" }, "sha512-OZ3X0Cksi0e5e0ILvH/mGvuP3rQ2Rj/csNScExM3lroxlnl359TGQod+o4Z1hjSjLbPAe7gRax5Xwmu0/fh7AQ=="],
 
-    "@lancedb/lancedb-win32-arm64-msvc": ["@lancedb/lancedb-win32-arm64-msvc@0.27.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-xSUNYZQwgDI782lb8XHFvM57QEDHnIS4n+SYBLHH428urdEoJdA4tVrwOJZoIBayKHdv7sPFPIumP40U56FDIg=="],
+    "@lancedb/lancedb-win32-arm64-msvc": ["@lancedb/lancedb-win32-arm64-msvc@0.29.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-5BS/8sNmmqtuj4J5btaoG+mqhcrQZKMJQa4koc+VfzK6VW0KV465kkcXwPtyzgjF4SyionpO9SbUHZj6LHplYA=="],
 
-    "@lancedb/lancedb-win32-x64-msvc": ["@lancedb/lancedb-win32-x64-msvc@0.27.1", "", { "os": "win32", "cpu": "x64" }, "sha512-pPR0wHhxtXp57R69g40P2Qs3iNyM4mZqCB/bOyRFhIVreaGooSDtEQREZzALoO/xpP7pj/MeFJpsM8LGyfz1bw=="],
+    "@lancedb/lancedb-win32-x64-msvc": ["@lancedb/lancedb-win32-x64-msvc@0.29.0", "", { "os": "win32", "cpu": "x64" }, "sha512-cszoiRM0C1wYi7zbMTkQKhVLPWpsW4D3ZTVnukJrCW3faJ+GVyjkXCqpZebWgbq9/9XDNcS0/iJUbB/FbSUNSw=="],
 
     "@noble/ciphers": ["@noble/ciphers@2.1.1", "", {}, "sha512-bysYuiVfhxNJuldNXlFEitTVdNnYUc+XNJZd7Qm2a5j1vZHgY+fazadNFWFaMK/2vye0JVlxV3gHmC0WDfAOQw=="],
 
