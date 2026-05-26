@@ -12,6 +12,13 @@ mock.module("../env.ts", () => ({
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
         EMBEDDING_CLOUD: "test/embedding-model",
         RERANK_MODEL: "cohere/rerank-4-pro",
+        RAG_HYBRID_VECTOR_K: 0,
+        RAG_HYBRID_BM25_K: 0,
+        RAG_HYBRID_RRF_K: 60,
+        RAG_VECTOR_SIMILARITY_THRESHOLD: 0.3,
+        RAG_RERANK_TOP_N: 10,
+        RAG_RERANK_DOC_MAX_CHARS: 2048,
+        RAG_RERANK_ENABLED: "false",
     },
 }));
 

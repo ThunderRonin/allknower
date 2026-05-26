@@ -10,8 +10,8 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
     .use(requireAuth)
     .post(
         "/query",
-        async ({ body }) => {
-            const chunks = await queryLore(body.text, body.topK ?? 10);
+        async ({ body, session }) => {
+            const chunks = await queryLore(body.text, body.topK ?? 10, { userId: session?.user?.id });
             return { results: chunks };
         },
         {
@@ -31,7 +31,7 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
         async ({ params, session }) => {
             try {
                 const credentials = await resolveAllCodexCredentials(session!.user.id);
-                await indexNote(params.noteId, credentials);
+                await indexNote(params.noteId, credentials, session!.user.id);
                 return { ok: true, noteId: params.noteId };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -64,7 +64,7 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
         "/reindex",
         async ({ session }) => {
             const credentials = await resolveAllCodexCredentials(session!.user.id);
-            const result = await fullReindex(credentials);
+            const result = await fullReindex(credentials, session!.user.id);
             return result;
         },
         {
@@ -79,7 +79,7 @@ export const ragRoute = new Elysia({ prefix: "/rag" })
         "/reindex-stale",
         async ({ session }) => {
             const credentials = await resolveAllCodexCredentials(session!.user.id);
-            const result = await reindexStaleNotes(credentials);
+            const result = await reindexStaleNotes(credentials, session!.user.id);
             return result;
         },
         {

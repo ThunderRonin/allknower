@@ -1,5 +1,6 @@
 import * as lancedb from "@lancedb/lancedb";
 import { embed, embedBatch, EMBEDDING_DIMENSIONS } from "./embedder.ts";
+import { computeRrf, type RrfEntry } from "./rrf.ts";
 import type { RagChunk } from "../types/lore.ts";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
@@ -9,12 +10,14 @@ const TABLE_NAME = "lore_embeddings";
 
 let _db: lancedb.Connection | null = null;
 let _table: lancedb.Table | null = null;
+let _ftsIndexHealthy: boolean = true;
 
 /** For testing only — resets the singleton connection so the next
  *  getTable() call creates a fresh DB at the current LANCEDB_PATH. */
 export function _resetConnection(): void {
     _db = null;
     _table = null;
+    _ftsIndexHealthy = true;
 }
 
 /**
@@ -36,12 +39,28 @@ export async function getTable(): Promise<lancedb.Table> {
 
     if (existingTables.includes(TABLE_NAME)) {
         _table = await _db.openTable(TABLE_NAME);
+        try {
+            // Verify schema by running a dummy search with userId filter.
+            // If the schema does not have the userId column, this will throw.
+            await _table.vectorSearch(new Array(EMBEDDING_DIMENSIONS).fill(0))
+                .where("userId = '__test_schema__'")
+                .limit(1)
+                .toArray();
+        } catch (e: any) {
+            rootLogger.info("LanceDB schema mismatch or old schema detected. Recreating table...", { error: e.message });
+            await _db.dropTable(TABLE_NAME);
+            _table = null;
+            return getTable();
+        }
     } else {
-        // Create table with schema inferred from a seed record
+        // Create table with schema inferred from a seed record containing new columns
         _table = await _db.createTable(TABLE_NAME, [
             {
                 noteId: "__seed__",
                 noteTitle: "__seed__",
+                userId: "__seed__",
+                loreType: "__seed__",
+                labels: ["__seed__"],
                 chunkIndex: 0,
                 content: "__seed__",
                 vector: new Array(EMBEDDING_DIMENSIONS).fill(0),
@@ -61,12 +80,14 @@ export async function getTable(): Promise<lancedb.Table> {
 export async function upsertNoteChunks(
     noteId: string,
     noteTitle: string,
-    chunks: string[]
+    chunks: string[],
+    userId: string = "default",
+    options?: { loreType?: string; labels?: string[] }
 ): Promise<void> {
     const table = await getTable();
 
-    // Remove existing chunks for this note
-    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}'`);
+    // Remove existing chunks for this note for this user
+    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}' AND userId = '${sanitizeFilterValue(userId)}'`);
 
     if (chunks.length === 0) return;
 
@@ -76,12 +97,24 @@ export async function upsertNoteChunks(
     const records = chunks.map((content, chunkIndex) => ({
         noteId,
         noteTitle,
+        userId,
+        loreType: options?.loreType ?? "",
+        labels: options?.labels ?? [],
         chunkIndex,
         content,
         vector: vectors[chunkIndex],
     }));
 
     await table.add(records);
+
+    try {
+        // Recreate FTS index on the content column so that the text search works
+        await table.createIndex("content", { config: lancedb.Index.fts(), replace: true });
+        _ftsIndexHealthy = true;
+    } catch (e: any) {
+        _ftsIndexHealthy = false;
+        rootLogger.warn("Failed to recreate FTS index on content", { error: e.message });
+    }
 }
 
 /**
@@ -95,7 +128,7 @@ export async function upsertNoteChunks(
 async function rerankWithOpenRouter(
     query: string,
     candidates: RagChunk[]
-): Promise<RagChunk[]> {
+): Promise<{ success: boolean; candidates: RagChunk[] }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
@@ -111,8 +144,8 @@ async function rerankWithOpenRouter(
             body: JSON.stringify({
                 model: env.RERANK_MODEL,
                 query,
-                documents: candidates.map(c => c.content.slice(0, 512)),
-                top_n: candidates.length,
+                documents: candidates.map(c => c.content.slice(0, env.RAG_RERANK_DOC_MAX_CHARS)),
+                top_n: Math.min(candidates.length, env.RAG_RERANK_TOP_N),
             }),
             signal: controller.signal,
         });
@@ -123,7 +156,7 @@ async function rerankWithOpenRouter(
                 status: response.status,
                 body: body.slice(0, 200),
             });
-            return candidates;
+            return { success: false, candidates };
         }
 
         const data = await response.json() as {
@@ -132,15 +165,17 @@ async function rerankWithOpenRouter(
 
         if (!data.results?.length) {
             rootLogger.warn("OpenRouter rerank returned empty results");
-            return candidates;
+            return { success: false, candidates };
         }
 
-        return data.results
+        const rerankedCandidates = data.results
             .map(r => ({
                 ...candidates[r.index],
                 score: r.relevance_score,
             }))
             .sort((a, b) => b.score - a.score);
+
+        return { success: true, candidates: rerankedCandidates };
     } catch (e: unknown) {
         if (e instanceof DOMException && e.name === "AbortError") {
             rootLogger.warn("OpenRouter rerank timed out after 30s");
@@ -149,7 +184,7 @@ async function rerankWithOpenRouter(
                 error: e instanceof Error ? e.message : String(e),
             });
         }
-        return candidates;
+        return { success: false, candidates };
     } finally {
         clearTimeout(timeoutId);
     }
@@ -164,67 +199,151 @@ async function rerankWithOpenRouter(
 export async function queryLore(
     queryText: string,
     topK: number = 10,
-    options?: { includeNoteIds?: string[] }
+    options?: { userId?: string; loreType?: string; includeNoteIds?: string[] }
 ): Promise<RagChunk[]> {
     const table = await getTable();
     const queryVector = await embed(queryText);
 
-    // 1. Initial retrieval — grab a larger pool for reranking
-    const RETRIEVAL_MULTIPLIER = 3;
-    const initialResults = await table
+    const vectorRetrievalK = env.RAG_HYBRID_VECTOR_K > 0
+        ? env.RAG_HYBRID_VECTOR_K
+        : topK * 3;
+    const bm25RetrievalK = env.RAG_HYBRID_BM25_K > 0
+        ? env.RAG_HYBRID_BM25_K
+        : topK * 3;
+
+    const filterParts: string[] = [];
+    if (options?.userId) {
+        filterParts.push(`userId = '${sanitizeFilterValue(options.userId)}'`);
+    }
+    if (options?.loreType) {
+        filterParts.push(`loreType = '${sanitizeFilterValue(options.loreType)}'`);
+    }
+    const filterStr = filterParts.length > 0 ? filterParts.join(" AND ") : undefined;
+
+    // 1a. Vector Search
+    let vectorQueryBuilder = table
         .vectorSearch(queryVector)
         .distanceType("cosine")
-        .limit(topK * RETRIEVAL_MULTIPLIER)
-        .select(["noteId", "noteTitle", "content", "_distance"])
-        .toArray();
+        .limit(vectorRetrievalK)
+        .select(["noteId", "noteTitle", "content", "_distance"]);
+    if (filterStr) {
+        vectorQueryBuilder = vectorQueryBuilder.where(filterStr);
+    }
+    const vectorResults = await vectorQueryBuilder.toArray();
 
-    // 2. Base similarity threshold (filter out immediate junk)
-    const SIMILARITY_THRESHOLD = 0.3;
-    const rawCandidates: RagChunk[] = initialResults.map((row: any) => ({
+    const SIMILARITY_THRESHOLD = env.RAG_VECTOR_SIMILARITY_THRESHOLD;
+    const vectorCandidates: RagChunk[] = vectorResults
+        .map((row: any) => ({
+            noteId: row.noteId as string,
+            noteTitle: row.noteTitle as string,
+            content: row.content as string,
+            score: 1 - (row._distance as number),
+        }))
+        // Filter out immediate vector search noise
+        .filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
+
+    // 1b. Full-Text Search (FTS Keyword Search)
+    let ftsResults: any[] = [];
+    try {
+        let ftsQueryBuilder = table
+            .search(queryText)
+            .limit(bm25RetrievalK)
+            .select(["noteId", "noteTitle", "content"]);
+        if (filterStr) {
+            ftsQueryBuilder = ftsQueryBuilder.where(filterStr);
+        }
+        ftsResults = await ftsQueryBuilder.toArray();
+    } catch (e: any) {
+        rootLogger.warn("FTS keyword search failed", { error: e.message });
+    }
+
+    const ftsCandidates: RagChunk[] = ftsResults.map((row: any) => ({
         noteId: row.noteId as string,
         noteTitle: row.noteTitle as string,
         content: row.content as string,
-        score: 1 - (row._distance as number),
+        score: 0.0, // Rank-based merged score will override this
     }));
-    let candidates = rawCandidates.filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
 
-    // Apply allowlist filter if provided (e.g. "only search within statblock notes")
+    // 2. Merge candidates using Reciprocal Rank Fusion (RRF)
+    const rrfScores = new Map<string, RrfEntry>();
+
+    vectorCandidates.forEach((c, idx) => {
+        const key = `${c.noteId}::${c.content}`;
+        rrfScores.set(key, {
+            chunk: c,
+            vectorRank: idx + 1,
+        });
+    });
+
+    ftsCandidates.forEach((c, idx) => {
+        const key = `${c.noteId}::${c.content}`;
+        const existing = rrfScores.get(key);
+        if (existing) {
+            existing.keywordRank = idx + 1;
+        } else {
+            rrfScores.set(key, {
+                chunk: c,
+                keywordRank: idx + 1,
+            });
+        }
+    });
+
+    let candidates = computeRrf(rrfScores, env.RAG_HYBRID_RRF_K);
+
+    // Limit to rerank pool size
+    candidates = candidates.slice(0, env.RAG_RERANK_TOP_N);
+
+    // Apply includeNoteIds allowlist filter if provided
     if (options?.includeNoteIds && options.includeNoteIds.length > 0) {
         const allowlist = new Set(options.includeNoteIds);
         candidates = candidates.filter(c => allowlist.has(c.noteId));
     }
 
-    rootLogger.info("queryLore threshold filter", {
+    rootLogger.info("queryLore hybrid search retrieval complete", {
         query: queryText.slice(0, 60),
-        retrieved: initialResults.length,
-        passedThreshold: candidates.length,
-        threshold: SIMILARITY_THRESHOLD,
-        topScore: rawCandidates[0]?.score?.toFixed(4),
-        topDistance: initialResults[0] ? (initialResults[0] as any)._distance?.toFixed(4) : undefined,
+        vectorRetrievedCount: vectorCandidates.length,
+        ftsRetrievedCount: ftsCandidates.length,
+        mergedCandidateCount: candidates.length,
+        vectorRetrievalK,
+        bm25RetrievalK,
+        rrfK: env.RAG_HYBRID_RRF_K,
+        rerankEnabled: env.RAG_RERANK_ENABLED !== "false",
+        rerankTopN: env.RAG_RERANK_TOP_N,
     });
 
     if (candidates.length === 0) {
-        rootLogger.warn("queryLore: all candidates below threshold", {
-            query: queryText.slice(0, 60),
-            retrieved: initialResults.length,
-            threshold: SIMILARITY_THRESHOLD,
-            topScore: rawCandidates[0]?.score?.toFixed(4),
-        });
         return [];
     }
 
     // 3. Rerank via OpenRouter native rerank endpoint
-    try {
-        candidates = await rerankWithOpenRouter(queryText, candidates);
-        rootLogger.info("Reranking complete", {
-            strategy: "OpenRouter native rerank",
-            model: env.RERANK_MODEL,
+    let reranked = false;
+    if (env.RAG_RERANK_ENABLED !== "false") {
+        try {
+            const rerankResult = await rerankWithOpenRouter(queryText, candidates);
+            candidates = rerankResult.candidates;
+            reranked = rerankResult.success;
+            if (reranked) {
+                rootLogger.info("Reranking complete", {
+                    strategy: "OpenRouter native rerank",
+                    model: env.RERANK_MODEL,
+                    query: queryText.slice(0, 60),
+                });
+            }
+        } catch (e: unknown) {
+            rootLogger.warn("Reranking failed, falling back to RRF rankings", {
+                error: e instanceof Error ? e.message : String(e),
+            });
+        }
+    } else {
+        rootLogger.info("Reranking skipped", {
+            reason: "RAG_RERANK_ENABLED=false",
             query: queryText.slice(0, 60),
         });
-    } catch (e: unknown) {
-        rootLogger.warn("Reranking failed, falling back to base vector similarity", {
-            error: e instanceof Error ? e.message : String(e),
-        });
+    }
+
+    // If reranked, filter out low relevance scores
+    if (reranked) {
+        candidates = candidates.filter(chunk => chunk.score >= SIMILARITY_THRESHOLD);
     }
 
     // 4. Deduplicate: group by noteId, keep highest-scoring chunk per note
@@ -244,21 +363,30 @@ export async function queryLore(
 /**
  * Delete all chunks for a note (e.g. when note is deleted in AllCodex).
  */
-export async function deleteNoteChunks(noteId: string): Promise<void> {
+export async function deleteNoteChunks(noteId: string, userId: string = "default"): Promise<void> {
     const table = await getTable();
-    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}'`);
+    await table.delete(`noteId = '${sanitizeFilterValue(noteId)}' AND userId = '${sanitizeFilterValue(userId)}'`);
+
+    try {
+        // Recreate FTS index after delete
+        await table.createIndex("content", { config: lancedb.Index.fts(), replace: true });
+        _ftsIndexHealthy = true;
+    } catch (e: any) {
+        _ftsIndexHealthy = false;
+        rootLogger.warn("Failed to recreate FTS index on content after delete", { error: e.message });
+    }
 }
 
 /**
  * Health check — verify LanceDB is accessible and table exists.
  */
-export async function checkLanceDbHealth(): Promise<{ ok: boolean; error?: string }> {
+export async function checkLanceDbHealth(): Promise<{ ok: boolean; ftsHealthy: boolean; error?: string }> {
     try {
         const table = await getTable();
         const count = await table.countRows();
-        return { ok: true };
+        return { ok: true, ftsHealthy: _ftsIndexHealthy };
     } catch (e: any) {
-        return { ok: false, error: e.message };
+        return { ok: false, ftsHealthy: false, error: e.message };
     }
 }
 
