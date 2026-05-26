@@ -230,3 +230,17 @@ model BrainDumpJob {
   @@index([batchId])
   @@map("brain_dump_jobs")
 }
+
+model BrainDumpRevisionLink {
+  id                  String   @id @default(cuid())
+  brainDumpHistoryId  String
+  noteId              String
+  revisionIdBefore    String?
+  revisionIdAfter     String?
+  action              String   // "created" | "updated" | "noop"
+  createdAt           DateTime @default(now())
+
+  @@index([brainDumpHistoryId])
+  @@index([noteId])
+  @@map("brain_dump_revision_links")
+}
