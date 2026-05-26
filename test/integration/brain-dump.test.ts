@@ -56,7 +56,15 @@ mock.module("../../src/db/client.ts", () => ({
             findUnique: mock(async () => null),
             upsert: mock(async () => ({})),
             deleteMany: mock(async () => ({ count: 0 })),
-        }
+        },
+        $transaction: mock(async (fn: Function) => fn({
+            brainDumpHistory: {
+                create: mock(async () => ({ id: "history-1" })),
+            },
+            brainDumpRevisionLink: {
+                createMany: mock(async () => ({ count: 0 })),
+            },
+        })),
     }
 }));
 

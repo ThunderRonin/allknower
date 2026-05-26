@@ -79,6 +79,10 @@ mock.module("../db/client.ts", () => ({
             findMany: mock(async () => []),
         },
         relationHistory: { create: mock(async () => ({})) },
+        $transaction: mock(async (fn: Function) => fn({
+            brainDumpHistory: { create: brainDumpCreateMock },
+            brainDumpRevisionLink: { createMany: mock(async () => ({ count: 0 })) },
+        })),
     },
 }));
 

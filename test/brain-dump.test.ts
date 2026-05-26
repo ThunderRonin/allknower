@@ -66,6 +66,10 @@ mock.module("../src/db/client.ts", () => ({
         relationHistory: {
             create: mock(async () => ({})),
         },
+        $transaction: mock(async (fn: Function) => fn({
+            brainDumpHistory: { create: mock(async () => ({ id: "h1" })) },
+            brainDumpRevisionLink: { createMany: mock(async () => ({ count: 0 })) },
+        })),
     },
 }));
 
@@ -288,6 +292,6 @@ describe("Brain dump routes", () => {
         
         expect(notifications.length).toBe(1);
         expect(notifications[0].payload.title).toBe("Brain Dump Failed");
-        expect(notifications[0].payload.body).toBe("Pipeline failure");
+        expect(notifications[0].payload.body).toBe("Unable to complete brain dump.");
     });
 });
