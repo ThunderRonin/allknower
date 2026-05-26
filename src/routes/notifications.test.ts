@@ -92,9 +92,8 @@ describe("Notifications Route", () => {
             expect(json).toEqual({ ok: true });
             expect(upsertMock).toHaveBeenCalledTimes(1);
             expect(upsertMock).toHaveBeenCalledWith({
-                where: { endpoint: "https://example.com/endpoint" },
+                where: { endpoint_userId: { endpoint: "https://example.com/endpoint", userId: "test-user" } },
                 update: {
-                    userId: "test-user",
                     p256dh: "p256dh-key",
                     auth: "auth-secret",
                 },

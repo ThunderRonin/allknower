@@ -18,9 +18,8 @@ export function createNotificationsRoute({ requireAuthImpl = requireAuth } = {})
                 }
                 const userId = session!.user.id;
                 await prisma.pushSubscription.upsert({
-                    where: { endpoint: body.endpoint },
+                    where: { endpoint_userId: { endpoint: body.endpoint, userId } },
                     update: {
-                        userId,
                         p256dh: body.keys.p256dh,
                         auth: body.keys.auth,
                     },

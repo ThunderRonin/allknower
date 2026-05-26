@@ -86,7 +86,7 @@ describe("E2E: Notifications", () => {
 
             // Make sure subscription doesn't exist
             await prisma.pushSubscription.deleteMany({
-                where: { endpoint: payload.endpoint },
+                where: { endpoint: payload.endpoint, userId: "test-user" },
             });
 
             // Call route to subscribe
@@ -99,7 +99,7 @@ describe("E2E: Notifications", () => {
 
             // Verify in DB directly
             let record = await prisma.pushSubscription.findUnique({
-                where: { endpoint: payload.endpoint },
+                where: { endpoint_userId: { endpoint: payload.endpoint, userId: "test-user" } },
             });
             expect(record).not.toBeNull();
             expect(record?.userId).toBe("test-user");
@@ -123,7 +123,7 @@ describe("E2E: Notifications", () => {
 
             // Verify DB record got updated
             record = await prisma.pushSubscription.findUnique({
-                where: { endpoint: payload.endpoint },
+                where: { endpoint_userId: { endpoint: payload.endpoint, userId: "test-user" } },
             });
             expect(record).not.toBeNull();
             expect(record?.userId).toBe("test-user");
@@ -142,7 +142,7 @@ describe("E2E: Notifications", () => {
 
             // Upsert a test record first
             await prisma.pushSubscription.upsert({
-                where: { endpoint: payload.endpoint },
+                where: { endpoint_userId: { endpoint: payload.endpoint, userId: "test-user" } },
                 update: {
                     userId: "test-user",
                     p256dh: "e2e-p256dh",
@@ -166,7 +166,7 @@ describe("E2E: Notifications", () => {
 
             // Verify it was deleted
             const record = await prisma.pushSubscription.findUnique({
-                where: { endpoint: payload.endpoint },
+                where: { endpoint_userId: { endpoint: payload.endpoint, userId: "test-user" } },
             });
             expect(record).toBeNull();
         });

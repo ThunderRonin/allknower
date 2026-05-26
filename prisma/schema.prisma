@@ -158,7 +158,7 @@ model RelationHistory {
 model RelationSuggestion {
   id          String   @id @default(cuid())
   noteId      String
-  userId      String   @default("")
+  userId      String
   contentHash String
   suggestions Json
   model       String
@@ -205,11 +205,12 @@ model LoreSessionMessage {
 model PushSubscription {
   id        String   @id @default(cuid())
   userId    String
-  endpoint  String   @unique
+  endpoint  String
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
 
+  @@unique([endpoint, userId])
   @@index([userId])
   @@map("push_subscriptions")
 }
@@ -237,6 +238,7 @@ model BrainDumpJob {
 
 model BrainDumpRevisionLink {
   id                  String   @id @default(cuid())
+  userId              String
   brainDumpHistoryId  String
   noteId              String
   revisionIdBefore    String?
@@ -246,6 +248,7 @@ model BrainDumpRevisionLink {
 
   @@index([brainDumpHistoryId])
   @@index([noteId])
+  @@index([userId])
   @@map("brain_dump_revision_links")
 }
 

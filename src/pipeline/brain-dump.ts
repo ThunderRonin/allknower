@@ -348,6 +348,7 @@ async function _writeEntitiesToAllCodex(
     const duplicatesFound: DuplicateInfo[] = [];
     const revisions: Array<{ noteId: string; title: string; contentBefore: string; contentAfter: string }> = [];
     const revisionLinks: Array<{
+        userId: string;
         brainDumpHistoryId: string;
         noteId: string;
         revisionIdBefore: string | null;
@@ -409,6 +410,7 @@ async function _writeEntitiesToAllCodex(
                 } catch { rootLogger.warn("Failed to snapshot after update", { noteId: entity.existingNoteId }); }
 
                 revisionLinks.push({
+                    userId: userId ?? "",
                     brainDumpHistoryId: historyId,
                     noteId: entity.existingNoteId,
                     revisionIdBefore,
@@ -460,6 +462,7 @@ async function _writeEntitiesToAllCodex(
                 }
 
                 revisionLinks.push({
+                    userId: userId ?? "",
                     brainDumpHistoryId: historyId,
                     noteId: note.noteId,
                     revisionIdBefore: null,
