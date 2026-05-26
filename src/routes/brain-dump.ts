@@ -2,12 +2,14 @@ import Elysia, { t } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { background } from "elysia-background";
 import { runBrainDump, runBrainDumpStream, commitReviewedEntities } from "../pipeline/brain-dump.ts";
+import { firePushNotifications } from "../pipeline/push-notify.ts";
 import { sseEncode } from "../pipeline/stream-types.ts";
 import { indexNote } from "../rag/indexer.ts";
 import { getModelChain } from "../pipeline/model-router.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import prisma from "../db/client.ts";
 
 type BrainDumpRouteDeps = {
     runBrainDumpImpl?: typeof runBrainDump;
@@ -16,6 +18,7 @@ type BrainDumpRouteDeps = {
     indexNoteImpl?: typeof indexNote;
     requireAuthImpl?: typeof requireAuth;
     rateLimitEnv?: Pick<typeof env, "BRAIN_DUMP_RATE_LIMIT_MAX" | "BRAIN_DUMP_RATE_LIMIT_WINDOW_MS">;
+    firePushNotificationsImpl?: typeof firePushNotifications;
 };
 
 export function createBrainDumpRoute({
@@ -25,6 +28,7 @@ export function createBrainDumpRoute({
     indexNoteImpl = indexNote,
     requireAuthImpl = requireAuth,
     rateLimitEnv = env,
+    firePushNotificationsImpl = firePushNotifications,
 }: BrainDumpRouteDeps = {}) {
     return new Elysia({ prefix: "/brain-dump" })
     .use(requireAuthImpl)
@@ -63,6 +67,14 @@ export function createBrainDumpRoute({
                 const { reindexIds, ...rest } = result as typeof result & { reindexIds: string[] };
                 for (const noteId of reindexIds) {
                     backgroundTasks.addTask(indexNoteImpl, noteId, credentials);
+                }
+                if (reindexIds.length > 0) {
+                    const payload = {
+                        title: "Brain Dump Complete",
+                        body: `Created ${result.created?.length ?? 0}, updated ${result.updated?.length ?? 0} lore entries.`,
+                        href: "/brain-dump",
+                    };
+                    firePushNotificationsImpl(userId, payload).catch(() => {});
                 }
                 return rest;
             }
@@ -113,6 +125,13 @@ export function createBrainDumpRoute({
             return new ReadableStream({
                 async start(controller) {
                     const encoder = new TextEncoder();
+                    const heartbeat = setInterval(() => {
+                        try {
+                            controller.enqueue(encoder.encode(": keepalive\n\n"));
+                        } catch {
+                            clearInterval(heartbeat);
+                        }
+                    }, 10_000);
                     const send = (event: string, data: unknown) => {
                         controller.enqueue(encoder.encode(sseEncode(event, data)));
                     };
@@ -131,8 +150,15 @@ export function createBrainDumpRoute({
                             }
                         }
                     } catch (e) {
-                        send("error", { type: "error", error: e instanceof Error ? e.message : String(e) });
+                        const errMsg = e instanceof Error ? e.message : String(e);
+                        send("error", { type: "error", error: errMsg });
+                        firePushNotificationsImpl(userId, {
+                            title: "Brain Dump Failed",
+                            body: errMsg,
+                            href: "/brain-dump",
+                        }).catch(() => {});
                     } finally {
+                        clearInterval(heartbeat);
                         controller.close();
                         // Fire-and-forget reindex for created/updated notes
                         if (resultJson) {
@@ -145,6 +171,12 @@ export function createBrainDumpRoute({
                                 for (const noteId of reindexIds) {
                                     indexNoteImpl(noteId, credentials).catch(() => {});
                                 }
+                                const payload = {
+                                    title: "Brain Dump Complete",
+                                    body: `Created ${result.created?.length ?? 0}, updated ${result.updated?.length ?? 0} lore entries.`,
+                                    href: "/brain-dump",
+                                };
+                                firePushNotificationsImpl(userId, payload).catch(() => {});
                             } catch {}
                         }
                     }
@@ -276,7 +308,69 @@ export function createBrainDumpRoute({
                 tags: ["Brain Dump"],
             },
         }
-    );
+    )
+
+    // ── Batch (bulk queue) routes ────────────────────────────────────
+
+    .post("/batch", async ({ session, body }) => {
+        const userId = session!.user.id;
+        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const jobs = await prisma.brainDumpJob.createManyAndReturn({
+            data: body.items.map((item: { rawText: string; parentNoteId?: string; mode?: string }, idx: number) => ({
+                userId,
+                batchId,
+                rawText: item.rawText,
+                parentNoteId: item.parentNoteId ?? null,
+                mode: item.mode ?? "auto",
+                status: "queued",
+                position: idx,
+            })),
+            select: { id: true, position: true },
+        });
+        return { batchId, jobs };
+    }, {
+        body: t.Object({
+            items: t.Array(t.Object({
+                rawText: t.String({ minLength: 1 }),
+                parentNoteId: t.Optional(t.String()),
+                mode: t.Optional(t.Union([t.Literal("auto"), t.Literal("review")])),
+            }), { minItems: 1, maxItems: 50 }),
+        }),
+        detail: { summary: "Submit a batch of brain dumps", tags: ["Brain Dump"] },
+    })
+
+    .get("/batch/:batchId", async ({ session, params, set }) => {
+        const userId = session!.user.id;
+        const jobs = await prisma.brainDumpJob.findMany({
+            where: { batchId: params.batchId, userId },
+            orderBy: { position: "asc" },
+        });
+        if (jobs.length === 0) {
+            set.status = 404;
+            return { error: "BATCH_NOT_FOUND" };
+        }
+        const counts = jobs.reduce((acc, j) => {
+            acc[j.status] = (acc[j.status] ?? 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        const terminal = (counts.queued ?? 0) === 0 && (counts.running ?? 0) === 0;
+        return { batchId: params.batchId, jobs, counts, terminal };
+    }, {
+        params: t.Object({ batchId: t.String() }),
+        detail: { summary: "Get batch status", tags: ["Brain Dump"] },
+    })
+
+    .delete("/batch/:batchId", async ({ session, params }) => {
+        const userId = session!.user.id;
+        const result = await prisma.brainDumpJob.updateMany({
+            where: { batchId: params.batchId, userId, status: "queued" },
+            data: { status: "cancelled", finishedAt: new Date() },
+        });
+        return { cancelled: result.count };
+    }, {
+        params: t.Object({ batchId: t.String() }),
+        detail: { summary: "Cancel queued jobs in a batch", tags: ["Brain Dump"] },
+    });
 }
 
 export const brainDumpRoute = createBrainDumpRoute();

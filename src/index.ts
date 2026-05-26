@@ -1,6 +1,7 @@
 import { app } from "./app.ts";
 import { env } from "./env.ts";
 import { runBootstrap } from "./bootstrap/index.ts";
+import { startBrainDumpWorker } from "./worker/brain-dump-worker.ts";
 
 const PORT = env.PORT;
 
@@ -17,3 +18,9 @@ console.log(
 runBootstrap().catch((e) => {
     console.error("❌ Bootstrap failed unexpectedly:", e);
 });
+
+if (env.NODE_ENV !== "test") {
+    startBrainDumpWorker().catch((e) => {
+        console.error("❌ Brain dump worker failed to start:", e);
+    });
+}
