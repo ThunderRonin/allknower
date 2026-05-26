@@ -51,6 +51,9 @@ mock.module("../../src/etapi/client.ts", () => ({
     updateNote: mock(async (id: string) => ({ noteId: id })),
     createRelation: mock(async () => {}),
     deleteNote: mock(async () => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 const HISTORY_ENTRY = {
@@ -93,6 +96,10 @@ mock.module("../../src/db/client.ts", () => ({
                 if (where.id === HISTORY_ENTRY.id) return HISTORY_ENTRY;
                 return null;
             }),
+        },
+        brainDumpRevisionLink: {
+            createMany: mock(async () => ({ count: 0 })),
+            findMany: mock(async () => []),
         },
         relationHistory: {
             findMany: mock(async () => []),

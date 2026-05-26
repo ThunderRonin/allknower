@@ -9,6 +9,7 @@ import { getModelChain } from "../pipeline/model-router.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import { resolveAllCodexCredentials } from "../integrations/allcodex.ts";
+import { getRevisionContent } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 
 type BrainDumpRouteDeps = {
@@ -19,6 +20,7 @@ type BrainDumpRouteDeps = {
     requireAuthImpl?: typeof requireAuth;
     rateLimitEnv?: Pick<typeof env, "BRAIN_DUMP_RATE_LIMIT_MAX" | "BRAIN_DUMP_RATE_LIMIT_WINDOW_MS">;
     firePushNotificationsImpl?: typeof firePushNotifications;
+    getRevisionContentImpl?: typeof getRevisionContent;
 };
 
 export function createBrainDumpRoute({
@@ -29,6 +31,7 @@ export function createBrainDumpRoute({
     requireAuthImpl = requireAuth,
     rateLimitEnv = env,
     firePushNotificationsImpl = firePushNotifications,
+    getRevisionContentImpl = getRevisionContent,
 }: BrainDumpRouteDeps = {}) {
     return new Elysia({ prefix: "/brain-dump" })
     .use(requireAuthImpl)
@@ -370,6 +373,51 @@ export function createBrainDumpRoute({
     }, {
         params: t.Object({ batchId: t.String() }),
         detail: { summary: "Cancel queued jobs in a batch", tags: ["Brain Dump"] },
+    })
+
+    // ── Diff / revision attribution ─────────────────────────────────
+
+    .get("/history/:id/diffs", async ({ params, set, session }) => {
+        const entry = await prisma.brainDumpHistory.findUnique({
+            where: { id: params.id },
+            select: { id: true, userId: true },
+        });
+        if (!entry || entry.userId !== session!.user.id) {
+            set.status = 404;
+            return { error: "Brain dump entry not found", code: "ENTRY_NOT_FOUND" };
+        }
+
+        const links = await prisma.brainDumpRevisionLink.findMany({
+            where: { brainDumpHistoryId: params.id },
+            orderBy: { createdAt: "asc" },
+        });
+        if (links.length === 0) return { diffs: [] };
+
+        const credentials = await resolveAllCodexCredentials(session!.user.id);
+        const diffs = await Promise.all(links.map(async (link) => {
+            let contentBefore: string | null = null;
+            let contentAfter: string | null = null;
+            if (link.revisionIdBefore) {
+                try { contentBefore = await getRevisionContentImpl(link.revisionIdBefore, credentials); }
+                catch { contentBefore = null; }
+            }
+            if (link.revisionIdAfter) {
+                try { contentAfter = await getRevisionContentImpl(link.revisionIdAfter, credentials); }
+                catch { contentAfter = null; }
+            }
+            return {
+                noteId: link.noteId,
+                action: link.action,
+                revisionIdBefore: link.revisionIdBefore,
+                revisionIdAfter: link.revisionIdAfter,
+                contentBefore,
+                contentAfter,
+            };
+        }));
+        return { diffs };
+    }, {
+        params: t.Object({ id: t.String() }),
+        detail: { summary: "Get content diffs for a brain dump", tags: ["Brain Dump"] },
     });
 }
 

@@ -47,6 +47,9 @@ mock.module("../etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 import { traverseRelationGraph } from "./graph-traversal.ts";

@@ -38,6 +38,9 @@ mock.module("../../src/etapi/client.ts", () => ({
     updateNote: mock(async (id: string) => ({ noteId: id })),
     createRelation: mock(async () => {}),
     deleteNote: mock(async () => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../../src/integrations/allcodex.ts", () => ({

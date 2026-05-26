@@ -52,6 +52,9 @@ mock.module("../etapi/client.ts", () => ({
     createRelation: createRelationMock,
     deleteNote: mock(async () => {}),
     checkAllCodexHealth: checkAllCodexHealthMock,
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../pipeline/prompt.ts", () => ({

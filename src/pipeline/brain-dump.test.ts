@@ -58,6 +58,9 @@ mock.module("../etapi/client.ts", () => ({
     deleteNote: mock(async () => {}),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../db/client.ts", () => ({
@@ -66,6 +69,10 @@ mock.module("../db/client.ts", () => ({
         brainDumpHistory: {
             findFirst: brainDumpFindFirstMock,
             create: brainDumpCreateMock,
+        },
+        brainDumpRevisionLink: {
+            createMany: mock(async () => ({ count: 0 })),
+            findMany: mock(async () => []),
         },
         ragIndexMeta: {
             upsert: mock(async () => ({})),

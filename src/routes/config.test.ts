@@ -14,6 +14,7 @@ mock.module("../db/client.ts", () => ({
         lLMCallLog: { deleteMany: deleteManyMock },
         ragIndexMeta: { deleteMany: deleteManyMock },
         brainDumpHistory: { deleteMany: deleteManyMock },
+        brainDumpRevisionLink: { deleteMany: deleteManyMock, createMany: mock(async () => ({ count: 0 })), findMany: mock(async () => []) },
         relationHistory: { deleteMany: deleteManyMock },
     },
 }));
@@ -37,6 +38,9 @@ mock.module("../etapi/client.ts", () => ({
     createRelation: mock(async () => {}),
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../integrations/allcodex.ts", () => ({

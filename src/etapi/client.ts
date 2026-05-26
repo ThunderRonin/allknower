@@ -312,6 +312,42 @@ export async function createRelation(
     return { relationName: attrName, skipped: false };
 }
 
+// ── Revisions ────────────────────────────────────────────────────────────────
+
+export interface EtapiRevision {
+    revisionId: string;
+    noteId: string;
+    type: string;
+    mime: string;
+    isProtected: boolean;
+    title: string;
+    blobId?: string;
+    dateLastEdited?: string;
+    dateCreated: string;
+    utcDateLastEdited?: string;
+    utcDateCreated: string;
+    utcDateModified: string;
+    contentLength?: number;
+    description: string;
+    revisionSource: string;
+}
+
+export async function getNoteRevisions(noteId: string, credentials?: EtapiCredentials): Promise<EtapiRevision[]> {
+    const res = await etapiFetch(`/notes/${noteId}/revisions`, {}, credentials);
+    return res.json() as Promise<EtapiRevision[]>;
+}
+
+export async function postNoteRevision(noteId: string, source?: string, credentials?: EtapiCredentials): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (source) headers["X-Revision-Source"] = source;
+    await etapiFetch(`/notes/${noteId}/revision`, { method: "POST", headers }, credentials);
+}
+
+export async function getRevisionContent(revisionId: string, credentials?: EtapiCredentials): Promise<string> {
+    const res = await etapiFetch(`/revisions/${revisionId}/content`, {}, credentials);
+    return res.text();
+}
+
 // ── Health Check ──────────────────────────────────────────────────────────────
 
 /** Verify AllCodex is reachable via ETAPI */
