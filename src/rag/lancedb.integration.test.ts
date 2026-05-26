@@ -74,6 +74,14 @@ beforeEach(async () => {
             OPENROUTER_API_KEY: "test-key",
             OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
             EMBEDDING_CLOUD: "test/model",
+            RERANK_MODEL: "cohere/rerank-4-pro",
+            RAG_HYBRID_VECTOR_K: 0,
+            RAG_HYBRID_BM25_K: 0,
+            RAG_HYBRID_RRF_K: 60,
+            RAG_VECTOR_SIMILARITY_THRESHOLD: 0.3,
+            RAG_RERANK_TOP_N: 10,
+            RAG_RERANK_DOC_MAX_CHARS: 2048,
+            RAG_RERANK_ENABLED: "false",
         },
     }));
 
@@ -218,6 +226,16 @@ describe("queryLore", () => {
             }
         }
     });
+
+    it("hybrid search prefers exact keyword matches even when vector similarity is flat", async () => {
+        await lancedb.upsertNoteChunks("note-1", "Dark Fortress", ["This is the Dark Fortress. Heavy defenses."]);
+        await lancedb.upsertNoteChunks("note-2", "Blackstone Keep", ["Blackstone Keep stands tall in the east. Ancient masonry."]);
+        await lancedb.upsertNoteChunks("note-3", "Emerald Tower", ["The Emerald Tower of the high elves."]);
+
+        const results = await lancedb.queryLore("Blackstone Keep", 5);
+        expect(results.length).toBeGreaterThan(0);
+        expect(results[0].noteTitle).toBe("Blackstone Keep");
+    });
 });
 
 // ── checkLanceDbHealth ────────────────────────────────────────────────────────
@@ -236,6 +254,16 @@ describe("checkLanceDbHealth", () => {
                 LANCEDB_PATH: "/proc/impossible/path/to/lancedb",
                 EMBEDDING_DIMENSIONS: DIMS,
                 OPENROUTER_API_KEY: "test",
+                OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+                EMBEDDING_CLOUD: "test/model",
+                RERANK_MODEL: "cohere/rerank-4-pro",
+                RAG_HYBRID_VECTOR_K: 0,
+                RAG_HYBRID_BM25_K: 0,
+                RAG_HYBRID_RRF_K: 60,
+                RAG_VECTOR_SIMILARITY_THRESHOLD: 0.3,
+                RAG_RERANK_TOP_N: 10,
+                RAG_RERANK_DOC_MAX_CHARS: 2048,
+                RAG_RERANK_ENABLED: "false",
             },
         }));
         lancedb._resetConnection();
@@ -264,6 +292,16 @@ describe("_resetConnection", () => {
                     LANCEDB_PATH: tmpDir2,
                     EMBEDDING_DIMENSIONS: DIMS,
                     OPENROUTER_API_KEY: "test",
+                    OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+                    EMBEDDING_CLOUD: "test/model",
+                    RERANK_MODEL: "cohere/rerank-4-pro",
+                    RAG_HYBRID_VECTOR_K: 0,
+                    RAG_HYBRID_BM25_K: 0,
+                    RAG_HYBRID_RRF_K: 60,
+                    RAG_VECTOR_SIMILARITY_THRESHOLD: 0.3,
+                    RAG_RERANK_TOP_N: 10,
+                    RAG_RERANK_DOC_MAX_CHARS: 2048,
+                    RAG_RERANK_ENABLED: "false",
                 },
             }));
             lancedb._resetConnection();

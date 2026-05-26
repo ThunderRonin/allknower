@@ -52,6 +52,32 @@ mock.module("../src/pipeline/relations.ts", () => ({
     })),
 }));
 
+mock.module("../src/pipeline/suggestion-cache.ts", () => ({
+    getOrComputeSuggestions: mock(async (opts: { text: string }) => [{
+        targetNoteId: "note-ally",
+        targetTitle: `Linked from ${opts.text}`,
+        relationshipType: "ally",
+        description: "Shared oath",
+    }]),
+    invalidateSuggestionCache: mock(async () => {}),
+    computeContentHash: mock((text: string) => "mock-hash"),
+}));
+
+mock.module("../src/pipeline/graph-traversal.ts", () => ({
+    traverseRelationGraph: mock(async (noteId: string, opts: { depth?: number }) => ({
+        nodes: [
+            { noteId, title: "Center", loreType: "character", depth: 0 },
+            { noteId: "neighbor-1", title: "Ally", loreType: "character", depth: 1 },
+        ],
+        edges: [
+            { sourceNoteId: noteId, targetNoteId: "neighbor-1", relationshipType: "ally" },
+        ],
+        centerNoteId: noteId,
+        maxDepthReached: opts?.depth ?? 2,
+        truncated: false,
+    })),
+}));
+
 mock.module("../src/integrations/allcodex.ts", () => ({
     connectAllCodexIntegration: mock(async () => ({ connected: true })),
     deleteAllCodexIntegration: mock(async () => {}),
@@ -93,6 +119,9 @@ mock.module("../src/etapi/client.ts", () => ({
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../src/pipeline/prompt.ts", () => ({
@@ -131,6 +160,19 @@ mock.module("../src/db/client.ts", () => ({
     default: {
         ragIndexMeta: {
             findMany: mock(async ({ take }: { take: number }) => autocompletePrefixResults.slice(0, take)),
+        },
+        relationHistory: {
+            findMany: mock(async () => [
+                {
+                    id: "rh-1",
+                    sourceNoteId: "note-A",
+                    targetNoteId: "note-B",
+                    type: "ally",
+                    relationName: "relAlly",
+                    description: "Battle companions",
+                    createdAt: new Date("2026-05-20T12:00:00Z"),
+                },
+            ]),
         },
     }
 }));
@@ -272,5 +314,31 @@ describe("Suggest routes", () => {
         });
 
         expect(status).toBe(422);
+    });
+
+    it("GET /suggest/graph/:noteId returns a traversed subgraph", async () => {
+        const { status, json } = await requestJson(app, "/suggest/graph/note-A?depth=2");
+        const body = json as {
+            nodes: Array<{ noteId: string; depth: number }>;
+            edges: Array<{ sourceNoteId: string; targetNoteId: string }>;
+            centerNoteId: string;
+            truncated: boolean;
+        };
+
+        expect(status).toBe(200);
+        expect(body.centerNoteId).toBe("note-A");
+        expect(body.nodes.length).toBeGreaterThan(0);
+        expect(body.nodes[0].noteId).toBe("note-A");
+        expect(body.edges.length).toBeGreaterThan(0);
+        expect(typeof body.truncated).toBe("boolean");
+    });
+
+    it("GET /suggest/history/:noteId returns relationship history", async () => {
+        const { status, json } = await requestJson(app, "/suggest/history/note-A");
+        const body = json as { entries: Array<{ id: string; type: string }> };
+
+        expect(status).toBe(200);
+        expect(Array.isArray(body.entries)).toBe(true);
+        expect(body.entries[0].type).toBe("ally");
     });
 });

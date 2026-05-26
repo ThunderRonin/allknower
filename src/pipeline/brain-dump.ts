@@ -9,14 +9,17 @@ import {
     setNoteTemplate,
     tagNote,
     createAttribute,
-    getAllCodexNotes,
     probeAllCodex,
+    getNoteContent,
+    getNoteRevisions,
+    postNoteRevision,
     type EtapiCredentials,
 } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { TEMPLATE_ID_MAP } from "../types/lore.ts";
 import type { BrainDumpResult, LoreEntityType } from "../types/lore.ts";
-import { suggestRelationsForNote, applyRelations } from "./relations.ts";
+import { applyRelations } from "./relations.ts";
+import { getOrComputeSuggestions } from "./suggestion-cache.ts";
 import { rootLogger } from "../logger.ts";
 
 const DEFAULT_LORE_ROOT_NOTE_ID = "root";
@@ -35,11 +38,11 @@ const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
  */
 async function gatherRagContext(
     rawText: string,
-    credentials?: EtapiCredentials,
+    userId?: string,
 ): Promise<Awaited<ReturnType<typeof queryLore>>> {
     let ragContext: Awaited<ReturnType<typeof queryLore>> = [];
     try {
-        ragContext = await queryLore(rawText, 10);
+        ragContext = await queryLore(rawText, 10, { userId });
     } catch (e: unknown) {
         rootLogger.warn("General RAG retrieval failed, continuing without context", {
             error: e instanceof Error ? e.message : String(e),
@@ -48,12 +51,7 @@ async function gatherRagContext(
 
     let statblockContext: typeof ragContext = [];
     try {
-        if (!credentials) throw new Error("no credentials");
-        const statblockNotes = await getAllCodexNotes("#statblock", credentials);
-        const statblockNoteIds = statblockNotes.map((n: { noteId: string }) => n.noteId);
-        if (statblockNoteIds.length > 0) {
-            statblockContext = await queryLore(rawText, 5, { includeNoteIds: statblockNoteIds });
-        }
+        statblockContext = await queryLore(rawText, 5, { userId, loreType: "statblock" });
     } catch (e: unknown) {
         rootLogger.warn("Statblock-grounded RAG failed, continuing without it", {
             error: e instanceof Error ? e.message : String(e),
@@ -68,13 +66,14 @@ async function gatherRagContext(
 type DuplicateMatch = { noteId: string; title: string; score: number };
 type DuplicateInfo = { proposedTitle: string; proposedType: string; matches: DuplicateMatch[] };
 
-async function findDuplicates(title: string, _type: string): Promise<DuplicateMatch[]> {
+async function findDuplicates(title: string, _type: string, userId?: string): Promise<DuplicateMatch[]> {
     try {
-        const results = await queryLore(title, 5);
+        const results = await queryLore(title, 5, { userId });
         return results
             .filter((r) => r.score > DUPLICATE_SIMILARITY_THRESHOLD)
             .map((r) => ({ noteId: r.noteId, title: r.noteTitle, score: r.score }));
     } catch {
+        // intentional: fire-and-forget — duplicates are advisory, not blocking
         return [];
     }
 }
@@ -164,13 +163,14 @@ export async function runBrainDump(
     }
 
     // Step 1: RAG context retrieval — general + statblock-grounded
-    const mergedContext = await gatherRagContext(rawText, credentials);
+    const mergedContext = await gatherRagContext(rawText, userId);
 
     // Step 2 & 3: Build prompt and call LLM
     const { system, context, user } = await buildBrainDumpPrompt(rawText, mergedContext);
     const { raw, tokensUsed, model: usedModel } = await callLLM(system, user, "brain-dump", context, {
         reasoning: { effort: "low" },
         modelOverride: model,
+        userId,
     });
 
 
@@ -192,7 +192,7 @@ export async function runBrainDump(
         // Run duplicate detection for new entities in review mode
         const duplicates: DuplicateInfo[] = [];
         for (const p of proposed.filter((e) => e.action === "create")) {
-            const matches = await findDuplicates(p.title, p.type);
+            const matches = await findDuplicates(p.title, p.type, userId);
             if (matches.length > 0) {
                 duplicates.push({ proposedTitle: p.title, proposedType: p.type, matches });
             }
@@ -276,7 +276,7 @@ export async function* runBrainDumpStream(
 
     // RAG retrieval
     yield { type: "status", stage: "rag", message: "Querying existing lore for context..." };
-    const mergedContext = await gatherRagContext(rawText, credentials);
+    const mergedContext = await gatherRagContext(rawText, userId);
     yield { type: "status", stage: "rag", message: `Found ${mergedContext.length} context chunks` };
 
     // Build prompt + stream LLM
@@ -289,6 +289,7 @@ export async function* runBrainDumpStream(
     for await (const chunk of callLLMStream(system, user, "brain-dump", context, {
         reasoning: { effort: "low" },
         modelOverride: model,
+        userId,
     })) {
         if (chunk.type === "token") {
             rawResponse += chunk.content;
@@ -340,10 +341,20 @@ async function _writeEntitiesToAllCodex(
     credentials?: EtapiCredentials,
     userId?: string
 ): Promise<BrainDumpResult & { reindexIds: string[]; relations?: Array<{ noteId: string; applied: number; failed: number }> }> {
+    const historyId = crypto.randomUUID();
     const created: BrainDumpResult["created"] = [];
     const updated: BrainDumpResult["updated"] = [];
     const skipped: BrainDumpResult["skipped"] = [];
     const duplicatesFound: DuplicateInfo[] = [];
+    const revisions: Array<{ noteId: string; title: string; contentBefore: string; contentAfter: string }> = [];
+    const revisionLinks: Array<{
+        userId: string;
+        brainDumpHistoryId: string;
+        noteId: string;
+        revisionIdBefore: string | null;
+        revisionIdAfter: string | null;
+        action: string;
+    }> = [];
 
     const loreRootConfig = await prisma.appConfig.findUnique({ where: { key: "loreRootNoteId" } });
     const loreRootNoteId = loreRootConfig?.value ?? DEFAULT_LORE_ROOT_NOTE_ID;
@@ -354,7 +365,7 @@ async function _writeEntitiesToAllCodex(
         try {
             // Step 13: Duplicate detection for new entities
             if (entity.action === "create" || !entity.existingNoteId) {
-                const dupMatches = await findDuplicates(entity.title, entity.type);
+                const dupMatches = await findDuplicates(entity.title, entity.type, userId);
                 if (dupMatches.length > 0) {
                     duplicatesFound.push({
                         proposedTitle: entity.title,
@@ -373,10 +384,47 @@ async function _writeEntitiesToAllCodex(
             }
 
             if (entity.action === "update" && entity.existingNoteId) {
+                let contentBefore = "";
+                try {
+                    contentBefore = await getNoteContent(entity.existingNoteId, credentials);
+                } catch (e) {
+                    rootLogger.warn("Failed to fetch note content before update", { noteId: entity.existingNoteId, error: e instanceof Error ? e.message : String(e) });
+                }
+
+                let revisionIdBefore: string | null = null;
+                try {
+                    const existing = await getNoteRevisions(entity.existingNoteId, credentials);
+                    revisionIdBefore = existing[0]?.revisionId ?? null;
+                } catch { rootLogger.warn("Failed to fetch revisions before update", { noteId: entity.existingNoteId }); }
+
                 await updateNote(entity.existingNoteId, { title: entity.title }, credentials);
                 if (entity.content) {
                     await setNoteContent(entity.existingNoteId, entity.content, credentials);
                 }
+
+                let revisionIdAfter: string | null = null;
+                try {
+                    await postNoteRevision(entity.existingNoteId, `brainDump-${historyId}`, credentials);
+                    const after = await getNoteRevisions(entity.existingNoteId, credentials);
+                    revisionIdAfter = after[0]?.revisionId ?? null;
+                } catch { rootLogger.warn("Failed to snapshot after update", { noteId: entity.existingNoteId }); }
+
+                revisionLinks.push({
+                    userId: userId ?? "",
+                    brainDumpHistoryId: historyId,
+                    noteId: entity.existingNoteId,
+                    revisionIdBefore,
+                    revisionIdAfter,
+                    action: "updated",
+                });
+
+                revisions.push({
+                    noteId: entity.existingNoteId,
+                    title: entity.title,
+                    contentBefore,
+                    contentAfter: entity.content ?? "",
+                });
+
                 updated.push({ noteId: entity.existingNoteId, title: entity.title, type: entity.type as LoreEntityType });
                 reindexIds.push(entity.existingNoteId);
             } else {
@@ -413,6 +461,15 @@ async function _writeEntitiesToAllCodex(
                     await tagNote(note.noteId, tag, "", credentials);
                 }
 
+                revisionLinks.push({
+                    userId: userId ?? "",
+                    brainDumpHistoryId: historyId,
+                    noteId: note.noteId,
+                    revisionIdBefore: null,
+                    revisionIdAfter: null,
+                    action: "created",
+                });
+
                 created.push({ noteId: note.noteId, title: entity.title, type: entity.type as LoreEntityType });
                 reindexIds.push(note.noteId);
             }
@@ -423,24 +480,39 @@ async function _writeEntitiesToAllCodex(
         }
     }
 
-    // Auto-relate
+    // Auto-relate: compute + cache suggestions for created AND updated notes.
+    // Created notes: force recompute, auto-apply high-confidence relations.
+    // Updated notes: cache-aware (skip if content unchanged), cache only (no auto-apply).
     const relationResults: Array<{ noteId: string; applied: number; failed: number }> = [];
-    if (autoRelate && created.length > 0) {
-        for (const note of created) {
-            try {
-                const entity = entities.find(e => e.title === note.title);
-                const content = entity?.content ?? note.title;
-                const suggestions = await suggestRelationsForNote(note.noteId, content, credentials);
+    const notesToRelate = autoRelate
+        ? [...created.map(n => ({ ...n, isNew: true })), ...updated.map(n => ({ ...n, isNew: false }))]
+        : [];
+
+    for (const note of notesToRelate) {
+        try {
+            const entity = entities.find(e => e.title === note.title);
+            const content = entity?.content ?? note.title;
+            const text = `[${note.title}]\n${content}`;
+            const suggestions = await getOrComputeSuggestions({
+                noteId: note.noteId,
+                text,
+                userId,
+                credentials,
+                force: note.isNew,
+            });
+            if (note.isNew) {
                 const highConfidence = suggestions.filter(s => s.confidence === "high");
                 if (highConfidence.length > 0) {
                     const { applied, failed } = await applyRelations(note.noteId, highConfidence, { credentials });
                     relationResults.push({ noteId: note.noteId, applied: applied.length, failed: failed.length });
                 }
-            } catch (error) {
-                rootLogger.warn("Auto-relate failed", {
-                    entityTitle: note.title,
-                    error: error instanceof Error ? error.message : String(error),
-                });
+            }
+        } catch (error) {
+            rootLogger.warn("Auto-relate failed", {
+                entityTitle: note.title,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            if (note.isNew) {
                 relationResults.push({ noteId: note.noteId, applied: 0, failed: 0 });
             }
         }
@@ -449,24 +521,32 @@ async function _writeEntitiesToAllCodex(
     // Persist to history — only cache runs that actually wrote something,
     // so failed runs (e.g. AllCodex down) can be retried with the same text.
     if (created.length > 0 || updated.length > 0) {
-        await prisma.brainDumpHistory.create({
-            data: {
-                rawText,
-                rawTextHash,
-                parsedJson: JSON.parse(JSON.stringify({
-                    entities: entities.map(e => {
-                        const c = created.find(n => n.title === e.title);
-                        const u = updated.find(n => n.title === e.title);
-                        return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
-                    }),
-                    summary,
-                })),
-                notesCreated: created.map((n) => n.noteId),
-                notesUpdated: updated.map((n) => n.noteId),
-                model,
-                tokensUsed,
-                userId,
-            },
+        await prisma.$transaction(async (tx) => {
+            await tx.brainDumpHistory.create({
+                data: {
+                    id: historyId,
+                    rawText,
+                    rawTextHash,
+                    parsedJson: JSON.parse(JSON.stringify({
+                        entities: entities.map(e => {
+                            const c = created.find(n => n.title === e.title);
+                            const u = updated.find(n => n.title === e.title);
+                            return { ...e, noteId: c?.noteId ?? u?.noteId, action: c ? "created" : u ? "updated" : "skipped" };
+                        }),
+                        summary,
+                        revisions,
+                    })),
+                    notesCreated: created.map((n) => n.noteId),
+                    notesUpdated: updated.map((n) => n.noteId),
+                    model,
+                    tokensUsed,
+                    userId,
+                },
+            });
+
+            if (revisionLinks.length > 0) {
+                await tx.brainDumpRevisionLink.createMany({ data: revisionLinks });
+            }
         });
     }
 

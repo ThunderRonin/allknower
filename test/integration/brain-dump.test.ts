@@ -33,6 +33,9 @@ mock.module("../../src/etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 // Mock Prisma
@@ -44,6 +47,15 @@ mock.module("../../src/db/client.ts", () => ({
         brainDumpHistory: {
             findFirst: mock(async () => null),
             create: mock(async () => ({ id: "history-1" }))
+        },
+        brainDumpRevisionLink: {
+            createMany: mock(async () => ({ count: 0 })),
+            findMany: mock(async () => []),
+        },
+        relationSuggestion: {
+            findUnique: mock(async () => null),
+            upsert: mock(async () => ({})),
+            deleteMany: mock(async () => ({ count: 0 })),
         }
     }
 }));

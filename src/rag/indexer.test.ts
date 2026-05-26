@@ -15,13 +15,22 @@ const mockGetNoteContent = mock(async (_noteId: string) => "<p>Aldric is the kin
 const mockGetAllCodexNotes = mock(async (_search: string) => [
     { noteId: "note-1", title: "Aldric", type: "text", utcDateModified: new Date().toISOString() },
 ]);
+const mockGetNote = mock(async (noteId: string) => ({
+    noteId,
+    title: "Aldric",
+    type: "text",
+    attributes: [
+        { type: "label", name: "loreType", value: "character" },
+        { type: "label", name: "test-tag", value: "" },
+    ],
+}));
 const mockUpsertNoteChunks = mock(async () => {});
 const mockChunkText = mock((_text: string) => ["chunk 1", "chunk 2"]);
 
 mock.module("../etapi/client.ts", () => ({
     getNoteContent: mockGetNoteContent,
     getAllCodexNotes: mockGetAllCodexNotes,
-    getNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text" })),
+    getNote: mockGetNote,
     createNote: mock(async () => ({ note: { noteId: "new-note" }, branch: {} })),
     tagNote: mock(async () => {}),
     setNoteTemplate: mock(async () => {}),
@@ -33,6 +42,9 @@ mock.module("../etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("./lancedb.ts", () => ({
@@ -61,6 +73,7 @@ import { indexNote, fullReindex, reindexStaleNotes } from "./indexer.ts";
 beforeEach(() => {
     mockGetNoteContent.mockClear();
     mockGetAllCodexNotes.mockClear();
+    mockGetNote.mockClear();
     mockUpsertNoteChunks.mockClear();
     mockChunkText.mockClear();
     mockPrismaRagUpsert.mockClear();
@@ -70,6 +83,15 @@ beforeEach(() => {
     mockGetAllCodexNotes.mockResolvedValue([
         { noteId: "note-1", title: "Aldric", type: "text", utcDateModified: new Date().toISOString() },
     ]);
+    mockGetNote.mockResolvedValue({
+        noteId: "note-1",
+        title: "Aldric",
+        type: "text",
+        attributes: [
+            { type: "label", name: "loreType", value: "character" },
+            { type: "label", name: "test-tag", value: "" },
+        ],
+    });
     mockChunkText.mockReturnValue(["chunk 1", "chunk 2"]);
     mockUpsertNoteChunks.mockResolvedValue(undefined);
     mockPrismaRagUpsert.mockResolvedValue({});
@@ -96,20 +118,25 @@ describe("indexNote", () => {
         expect(calledWith).not.toMatch(/\s{2,}/);
     });
 
-    it("calls upsertNoteChunks with noteId, title, chunks", async () => {
+    it("calls upsertNoteChunks with noteId, title, chunks, userId, and options", async () => {
         await indexNote("note-1");
-        expect(mockUpsertNoteChunks).toHaveBeenCalledWith("note-1", "Aldric", ["chunk 1", "chunk 2"]);
+        expect(mockUpsertNoteChunks).toHaveBeenCalledWith(
+            "note-1",
+            "Aldric",
+            ["chunk 1", "chunk 2"],
+            "default",
+            { loreType: "character", labels: ["loreType", "test-tag"] }
+        );
     });
 
-    it("fetches note title via getAllCodexNotes", async () => {
+    it("fetches note metadata via getNote", async () => {
         await indexNote("note-1");
-        expect(mockGetAllCodexNotes).toHaveBeenCalledWith(expect.stringContaining("note-1"), undefined);
+        expect(mockGetNote).toHaveBeenCalledWith("note-1", undefined);
     });
 
-    it("falls back to noteId as title when ETAPI returns no results", async () => {
-        mockGetAllCodexNotes.mockResolvedValue([]);
-        await indexNote("note-missing");
-        expect(mockUpsertNoteChunks).toHaveBeenCalledWith("note-missing", "note-missing", expect.any(Array));
+    it("propagates error when getNote throws", async () => {
+        mockGetNote.mockRejectedValue(new Error("Note not found"));
+        await expect(indexNote("note-1")).rejects.toThrow("Note not found");
     });
 
     it("upserts ragIndexMeta with noteId, title, chunkCount, model", async () => {

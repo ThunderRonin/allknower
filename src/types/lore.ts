@@ -12,13 +12,23 @@ import { z } from "zod";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Accepts string | null | undefined → string | undefined (null coerced away). */
+const optStr = z
+    .union([z.string(), z.null()])
+    .transform((v): string | undefined => (v === null ? undefined : v))
+    .optional();
+
 /**
  * LLMs frequently return arrays for fields we want as strings (goals, abilities, etc.).
  * This coerces string[] → comma-joined string, passes strings through, drops null/undefined.
  */
 const coerceToString = z
-    .union([z.string(), z.array(z.string())])
-    .transform((v) => (Array.isArray(v) ? v.join(", ") : v))
+    .union([z.string(), z.array(z.string()), z.null()])
+    .transform((v) => {
+        if (v === null) return undefined;
+        if (Array.isArray(v)) return v.join(", ");
+        return v;
+    })
     .optional();
 
 /**
@@ -60,86 +70,86 @@ export type LoreEntityType = z.infer<typeof LoreEntityTypeSchema>;
 const BaseLoreEntitySchema = z.object({
     type: LoreEntityTypeSchema,
     title: z.string().min(1),
-    content: z.string().optional(),       // HTML note body
+    content: optStr,       // HTML note body
     tags: z.array(z.string()).optional(),
-    parentNoteId: z.string().optional(),  // AllCodex placement
+    parentNoteId: optStr,  // AllCodex placement
 });
 
 // ── Per-type attribute schemas ────────────────────────────────────────────────
 
 export const CharacterAttributesSchema = z.object({
-    fullName: z.string().optional(),
+    fullName: optStr,
     aliases: coerceToArray,
-    age: z.string().optional(),
-    race: z.string().optional(),
-    gender: z.string().optional(),
-    affiliation: z.string().optional(),
-    role: z.string().optional(),
+    age: optStr,
+    race: optStr,
+    gender: optStr,
+    affiliation: optStr,
+    role: optStr,
     status: z.enum(["alive", "dead", "unknown"]).catch("unknown").optional(),
-    secrets: z.string().optional(),
-    physicalDescription: z.string().optional(),
-    personality: z.string().optional(),
-    backstory: z.string().optional(),
+    secrets: optStr,
+    physicalDescription: optStr,
+    personality: optStr,
+    backstory: optStr,
     goals: coerceToString,
 });
 
 export const LocationAttributesSchema = z.object({
-    locationType: z.string().optional(),
-    region: z.string().optional(),
-    population: z.string().optional(),
-    ruler: z.string().optional(),
-    history: z.string().optional(),
+    locationType: optStr,
+    region: optStr,
+    population: optStr,
+    ruler: optStr,
+    history: optStr,
     notableLandmarks: coerceToString,
-    secrets: z.string().optional(),
+    secrets: optStr,
     connectedLocations: coerceToArray,
 });
 
 export const FactionAttributesSchema = z.object({
-    factionType: z.string().optional(),
-    foundingDate: z.string().optional(),
-    leader: z.string().optional(),
+    factionType: optStr,
+    foundingDate: optStr,
+    leader: optStr,
     goals: coerceToString,
     members: coerceToArray,
     allies: coerceToArray,
     enemies: coerceToArray,
-    secrets: z.string().optional(),
+    secrets: optStr,
     hierarchy: coerceToString,
 });
 
 const StatblockFieldsSchema = z.object({
-    ac: z.string().optional(),
-    hp: z.string().optional(),
-    speed: z.string().optional(),
+    ac: optStr,
+    hp: optStr,
+    speed: optStr,
     str: z.number().int().min(1).max(30).optional(),
     dex: z.number().int().min(1).max(30).optional(),
     con: z.number().int().min(1).max(30).optional(),
     int: z.number().int().min(1).max(30).optional(),
     wis: z.number().int().min(1).max(30).optional(),
     cha: z.number().int().min(1).max(30).optional(),
-    cr: z.string().optional(),
+    cr: optStr,
 });
 
 export const CreatureAttributesSchema = StatblockFieldsSchema.extend({
-    creatureType: z.string().optional(),
-    habitat: z.string().optional(),
-    diet: z.string().optional(),
+    creatureType: optStr,
+    habitat: optStr,
+    diet: optStr,
     abilities: coerceToString,
-    lore: z.string().optional(),
-    dangerLevel: z.string().optional(),
+    lore: optStr,
+    dangerLevel: optStr,
 });
 
 export const EventAttributesSchema = z.object({
-    inWorldDate: z.string().optional(),
+    inWorldDate: optStr,
     participants: coerceToArray,
-    location: z.string().optional(),
-    outcome: z.string().optional(),
+    location: optStr,
+    outcome: optStr,
     consequences: coerceToString,
-    secrets: z.string().optional(),
+    secrets: optStr,
 });
 
 export const TimelineAttributesSchema = z.object({
-    startDate: z.string().optional(),
-    endDate: z.string().optional(),
+    startDate: optStr,
+    endDate: optStr,
     events: coerceToArray, // Event note IDs
 });
 
@@ -149,138 +159,138 @@ export const ManuscriptAttributesSchema = z.object({
 });
 
 export const StatblockAttributesSchema = StatblockFieldsSchema.extend({
-    system: z.string().optional(), // "dnd5e", "pathfinder2e", etc.
+    system: optStr, // "dnd5e", "pathfinder2e", etc.
     abilities: coerceToString,
     actions: coerceToString,
     legendaryActions: coerceToString,
 });
 
 export const ItemAttributesSchema = z.object({
-    itemType: z.string().optional(),
-    rarity: z.string().optional(),
-    creator: z.string().optional(),
+    itemType: optStr,
+    rarity: optStr,
+    creator: optStr,
     magicProperties: coerceToString,
-    history: z.string().optional(),
-    currentOwner: z.string().optional(),
-    secrets: z.string().optional(),
+    history: optStr,
+    currentOwner: optStr,
+    secrets: optStr,
 });
 
 export const SpellAttributesSchema = z.object({
-    school: z.string().optional(),
-    level: z.string().optional(),
-    castingTime: z.string().optional(),
-    range: z.string().optional(),
+    school: optStr,
+    level: optStr,
+    castingTime: optStr,
+    range: optStr,
     components: coerceToString,
-    duration: z.string().optional(),
-    origin: z.string().optional(),
-    secrets: z.string().optional(),
+    duration: optStr,
+    origin: optStr,
+    secrets: optStr,
 });
 
 export const BuildingAttributesSchema = z.object({
-    buildingType: z.string().optional(),
-    owner: z.string().optional(),
-    purpose: z.string().optional(),
-    condition: z.string().optional(),
-    secrets: z.string().optional(),
-    location: z.string().optional(),
+    buildingType: optStr,
+    owner: optStr,
+    purpose: optStr,
+    condition: optStr,
+    secrets: optStr,
+    location: optStr,
 });
 
 export const LanguageAttributesSchema = z.object({
-    languageFamily: z.string().optional(),
+    languageFamily: optStr,
     speakers: coerceToString,
-    script: z.string().optional(),
-    samplePhrase: z.string().optional(),
-    origin: z.string().optional(),
+    script: optStr,
+    samplePhrase: optStr,
+    origin: optStr,
 });
 
 export const OrganizationAttributesSchema = z.object({
-    orgType: z.string().optional(),
-    purpose: z.string().optional(),
-    foundingDate: z.string().optional(),
-    leader: z.string().optional(),
-    headquarters: z.string().optional(),
+    orgType: optStr,
+    purpose: optStr,
+    foundingDate: optStr,
+    leader: optStr,
+    headquarters: optStr,
     members: coerceToArray,
     resources: coerceToString,
-    secrets: z.string().optional(),
-    status: z.string().optional(),
+    secrets: optStr,
+    status: optStr,
 });
 
 export const RaceAttributesSchema = z.object({
-    racialType: z.string().optional(),
-    homeland: z.string().optional(),
+    racialType: optStr,
+    homeland: optStr,
     physicalTraits: coerceToString,
-    culture: z.string().optional(),
+    culture: optStr,
     languages: coerceToArray,
-    lifespan: z.string().optional(),
+    lifespan: optStr,
     abilities: coerceToString,
     relations: coerceToString,
-    secrets: z.string().optional(),
+    secrets: optStr,
 });
 
 export const MythAttributesSchema = z.object({
-    mythType: z.string().optional(),
-    origin: z.string().optional(),
+    mythType: optStr,
+    origin: optStr,
     tellers: coerceToString,
-    truthBasis: z.string().optional(),
-    significance: z.string().optional(),
-    secrets: z.string().optional(),
+    truthBasis: optStr,
+    significance: optStr,
+    secrets: optStr,
 });
 
 export const CosmologyAttributesSchema = z.object({
-    domain: z.string().optional(),
+    domain: optStr,
     laws: coerceToString,
-    source: z.string().optional(),
+    source: optStr,
     planes: coerceToArray,
     interactions: coerceToString,
-    secrets: z.string().optional(),
+    secrets: optStr,
 });
 
 export const DeityAttributesSchema = z.object({
     domains: coerceToString,
-    alignment: z.string().optional(),
-    rank: z.string().optional(),
-    symbol: z.string().optional(),
+    alignment: optStr,
+    rank: optStr,
+    symbol: optStr,
     worshippers: coerceToString,
     allies: coerceToArray,
     enemies: coerceToArray,
-    secrets: z.string().optional(),
+    secrets: optStr,
 });
 
 export const ReligionAttributesSchema = z.object({
-    deity: z.string().optional(),
-    pantheon: z.string().optional(),
+    deity: optStr,
+    pantheon: optStr,
     tenets: coerceToString,
-    clergy: z.string().optional(),
+    clergy: optStr,
     holyDays: coerceToString,
-    headquarters: z.string().optional(),
+    headquarters: optStr,
     followers: coerceToString,
-    secrets: z.string().optional(),
+    secrets: optStr,
 });
 
 export const SessionAttributesSchema = z.object({
-    sessionDate: z.string().optional(),
+    sessionDate: optStr,
     players: coerceToString,
-    sessionStatus: z.string().optional(),
-    recap: z.string().optional(),
+    sessionStatus: optStr,
+    recap: optStr,
     hooks: coerceToString,
-    gmNotes: z.string().optional(),
+    gmNotes: optStr,
 });
 
 export const QuestAttributesSchema = z.object({
     questStatus: z.enum(["active", "completed", "failed", "deferred", "unknown"])
         .catch("unknown").optional(),
-    questGiver: z.string().optional(),
-    reward: z.string().optional(),
-    location: z.string().optional(),
+    questGiver: optStr,
+    reward: optStr,
+    location: optStr,
     hooks: coerceToString,
     consequences: coerceToString,
 });
 
 export const SceneAttributesSchema = z.object({
-    location: z.string().optional(),
+    location: optStr,
     participants: coerceToString,
-    outcome: z.string().optional(),
-    gmNotes: z.string().optional(),
+    outcome: optStr,
+    gmNotes: optStr,
 });
 
 // ── Discriminated union entity schemas ────────────────────────────────────────
@@ -288,7 +298,7 @@ export const SceneAttributesSchema = z.object({
 // Shared coercions applied to every entity type
 const EntityBaseExtension = {
     action: z.enum(["create", "update"]).default("create"),
-    existingNoteId: z.string().nullish().transform((v) => v ?? undefined),
+    existingNoteId: optStr.transform((v) => v ?? undefined),
 };
 
 export const CharacterEntitySchema = BaseLoreEntitySchema.extend({
@@ -469,7 +479,7 @@ export const BrainDumpResultSchema = z.object({
         title: z.string(),
         reason: z.string(),
         errorCategory: z.enum(["auth", "network", "validation", "unknown"]).optional(),
-        noteId: z.string().optional(),
+        noteId: optStr,
     })),
     duplicates: z.array(z.object({
         proposedTitle: z.string(),
@@ -517,16 +527,16 @@ export const LoreSessionStateSchema = z.object({
     skippedEntities: z.array(z.object({
         title: z.string(),
         reason: z.string(),
-        errorCategory: z.string().optional(),
+        errorCategory: optStr,
     })),
     /** 5. Compressed summary of all user raw inputs this session */
     rawInputsSummary: z.string(),
     /** 6. Lore gaps or inconsistencies flagged but not resolved */
     unresolvedGaps: z.array(z.string()),
     /** 7. The entity currently being actively worked on */
-    currentFocus: z.string().optional(),
+    currentFocus: optStr,
     /** Metadata */
-    lastCompactedAt: z.string().optional(),
+    lastCompactedAt: optStr,
     totalTokensConsumed: z.number().default(0),
     /** Schema version for future state migrations */
     schemaVersion: z.literal(1).default(1),
@@ -570,7 +580,7 @@ export type Confidence = z.infer<typeof ConfidenceSchema>;
 
 export const RelationSuggestionSchema = z.object({
     targetNoteId: z.string(),
-    targetTitle: z.string().optional(),
+    targetTitle: optStr,
     relationshipType: RelationshipTypeSchema,
     description: z.string(),
     confidence: ConfidenceSchema.optional(),
@@ -580,7 +590,7 @@ export type RelationSuggestion = z.infer<typeof RelationSuggestionSchema>;
 export const ApplyRelationSchema = z.object({
     targetNoteId: z.string(),
     relationshipType: RelationshipTypeSchema,
-    description: z.string().optional(),
+    description: optStr,
 });
 
 export const ApplyRelationBodySchema = z.object({

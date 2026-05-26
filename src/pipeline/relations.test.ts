@@ -55,6 +55,9 @@ mock.module("../etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../rag/compact-context.ts", () => ({
@@ -104,7 +107,7 @@ beforeEach(() => {
 describe("suggestRelationsForNote", () => {
     it("calls queryLore with noteContent and limit=15", async () => {
         await suggestRelationsForNote("note-a", "Aldric is a warrior king.");
-        expect(mockQueryLore).toHaveBeenCalledWith("Aldric is a warrior king.", 15);
+        expect(mockQueryLore).toHaveBeenCalledWith("Aldric is a warrior king.", 15, { userId: undefined });
     });
 
     it("returns [] when queryLore returns empty array", async () => {

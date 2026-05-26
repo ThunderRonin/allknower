@@ -1,8 +1,9 @@
-import { OpenRouter, fromChatMessages } from "@openrouter/sdk";
+import { OpenRouter } from "@openrouter/sdk";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
 import type { StreamChunk } from "./stream-types.ts";
+import { computeCostUsd } from "./pricing-cache.ts";
 
 /**
  * Model Router — per-task model selection with native OpenRouter fallbacks.
@@ -144,6 +145,7 @@ export async function callWithFallback(
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
         log?: Logger;
+        userId?: string;
     }
 ): Promise<LLMResult> {
     const log = options?.log ?? rootLogger;
@@ -190,7 +192,6 @@ export async function callWithFallback(
                 plugins: [
                     { id: "response-healing" as const },
                 ],
-                // 3.3 + 3.4: explicit provider preferences + fallback routing
                 provider: {
                     allowFallbacks: true,
                     ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
@@ -203,15 +204,16 @@ export async function callWithFallback(
 
         const latencyMs = Math.round(performance.now() - startTime);
         const raw = (response as any).choices?.[0]?.message?.content ?? "";
-        const tokensUsed = (response as any).usage?.total_tokens ?? 0;
+        const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
+        const outputTokens = (response as any).usage?.completion_tokens ?? 0;
+        const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
         const usedModel = (response as any).model ?? primaryModel;
 
         if (usedModel !== primaryModel) {
             log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
         }
 
-        // Fire-and-forget LLM call log — never blocks the pipeline
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
 
         return { raw, tokensUsed, model: usedModel, latencyMs };
     } catch (error) {
@@ -227,14 +229,9 @@ export async function callWithFallback(
 // ── Streaming LLM call with inactivity-based timeouts ────────────────────────
 
 /**
- * Stream an LLM response via the OpenRouter Responses API with inactivity-based
- * timeout protection. Yields `StreamChunk` items that callers (SSE routes) can
- * forward directly to the client.
- *
- * Uses `openrouter.callModel()` + `result.getItemsStream()` — the newer
- * Responses API — as opposed to `callWithFallback()` which uses the Chat
- * Completions API. Both co-exist: non-streaming internal pipelines keep using
- * `callWithFallback()`.
+ * Stream an LLM response via the OpenRouter SDK's Chat Completions streaming.
+ * Uses `openrouter.chat.send()` with `stream: true` — NOT `callModel()` which
+ * targets the broken Responses API.
  *
  * Timeout strategy:
  * - **First chunk**: abort if no data arrives within `LLM_FIRST_CHUNK_TIMEOUT_MS`.
@@ -255,6 +252,7 @@ export async function* callModelStream(
         reasoning?: { effort?: "xhigh" | "high" | "medium" | "low" | "minimal" };
         modelOverride?: string;
         log?: Logger;
+        userId?: string;
     }
 ): AsyncGenerator<StreamChunk> {
     const log = options?.log ?? rootLogger;
@@ -294,74 +292,65 @@ export async function* callModelStream(
         inactivityTimer = setTimeout(() => controller.abort(), INACTIVITY_MS);
     };
 
-    // Extract system message and build input
-    const systemMsg = messages.find(m => m.role === "system");
-    const nonSystemMessages = messages.filter(m => m.role !== "system");
-
-    // Build text format from responseFormat
-    const textFormat = options?.responseFormat?.type === "json_object"
-        ? { format: { type: "json_object" as const } }
-        : options?.responseFormat?.type === "json_schema"
-            ? { format: { type: "json_schema" as const, ...options.responseFormat.jsonSchema } }
-            : undefined;
-
     let accumulatedText = "";
     let tokensUsed = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
     let usedModel = primaryModel;
 
     try {
-        const result = openrouter.callModel({
-            model: primaryModel,
-            ...(fallbackModels.length > 0 && { models: fallbackModels }),
-            ...(systemMsg && { instructions: systemMsg.content }),
-            input: nonSystemMessages.length === 1 && nonSystemMessages[0].role === "user"
-                ? nonSystemMessages[0].content
-                : fromChatMessages(nonSystemMessages as any),
-            temperature: options?.temperature ?? 0.3,
-            maxOutputTokens: options?.maxTokens ?? 30000,
-            ...(textFormat && { text: textFormat }),
-            ...(options?.reasoning && { reasoning: options.reasoning }),
-            plugins: [{ id: "response-healing" as any }],
-            provider: {
-                allowFallbacks: true,
-                ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
-                ...(env.OPENROUTER_ZDR === "true" && { dataCollection: "deny" as any }),
-            } as any,
+        const result = await openrouter.chat.send({
+            httpReferer: "https://allknower.local",
+            appTitle: "AllKnower",
+            chatGenerationParams: {
+                model: primaryModel,
+                ...(fallbackModels.length > 0 && { models: fallbackModels }),
+                messages: messages as any,
+                stream: true,
+                streamOptions: { includeUsage: true },
+                temperature: options?.temperature ?? 0.3,
+                maxTokens: options?.maxTokens ?? 30000,
+                ...(options?.responseFormat && {
+                    responseFormat: options.responseFormat as any,
+                }),
+                ...(options?.reasoning && { reasoning: options.reasoning }),
+                provider: {
+                    allowFallbacks: true,
+                    ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                    ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
+                } as any,
+            },
         }, {
             signal: controller.signal,
         } as any);
 
-        for await (const item of result.getItemsStream()) {
+        for await (const chunk of result as AsyncIterable<any>) {
             if (!firstChunkReceived) {
                 firstChunkReceived = true;
                 clearTimeout(firstChunkTimer);
-                resetInactivity();
-            } else {
-                resetInactivity();
+            }
+            resetInactivity();
+
+            if (chunk.model) usedModel = chunk.model;
+
+            if (chunk.usage) {
+                inputTokens = chunk.usage.promptTokens ?? 0;
+                outputTokens = chunk.usage.completionTokens ?? 0;
+                tokensUsed = chunk.usage.totalTokens ?? (inputTokens + outputTokens);
             }
 
-            if (item.type === "reasoning") {
-                const summaryText = ((item as any).summary ?? [])
-                    .map((s: any) => s?.text ?? "")
-                    .join("");
-                yield { type: "reasoning", content: summaryText };
-            } else if (item.type === "message") {
-                const messageText = ((item as any).content ?? [])
-                    .filter((c: any) => c?.type === "output_text")
-                    .map((c: any) => c?.text ?? "")
-                    .join("");
-                const delta = messageText.slice(accumulatedText.length);
-                if (delta) {
-                    accumulatedText += delta;
-                    yield { type: "token", content: delta };
-                }
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
+
+            if (delta.reasoning) {
+                yield { type: "reasoning", content: delta.reasoning };
+            }
+
+            if (delta.content) {
+                accumulatedText += delta.content;
+                yield { type: "token", content: delta.content };
             }
         }
-
-        const response = await result.getResponse();
-        tokensUsed = (response.usage as any)?.totalTokens
-            ?? ((response.usage as any)?.inputTokens ?? 0) + ((response.usage as any)?.outputTokens ?? 0);
-        usedModel = (response as any).model ?? primaryModel;
 
         const latencyMs = Math.round(performance.now() - startTime);
 
@@ -369,7 +358,7 @@ export async function* callModelStream(
             log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
         }
 
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
 
         yield { type: "done", raw: accumulatedText, tokensUsed, model: usedModel, latencyMs };
     } catch (error) {
@@ -382,7 +371,7 @@ export async function* callModelStream(
         } else {
             yield { type: "error", error: error instanceof Error ? error.message : String(error) };
         }
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs }, log);
+        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs, userId: options?.userId }, log);
     } finally {
         clearTimeout(firstChunkTimer);
         clearTimeout(inactivityTimer);
@@ -393,12 +382,22 @@ export async function* callModelStream(
 // ── Fire-and-forget call logger ───────────────────────────────────────────────
 
 function logLLMCall(
-    data: { requestId?: string; task: string; model: string; tokensUsed: number; latencyMs: number },
+    data: { requestId?: string; task: string; model: string; tokensUsed: number; inputTokens?: number; outputTokens?: number; latencyMs: number; userId?: string },
     log: Logger
 ): void {
-    // Dynamic import to avoid circular dependency at module load time
+    const costUsd = (data.inputTokens != null && data.outputTokens != null)
+        ? computeCostUsd(data.model, data.inputTokens, data.outputTokens)
+        : undefined;
+
     import("../db/client.ts").then(({ default: prisma }) => {
-        return prisma.lLMCallLog.create({ data });
+        return prisma.lLMCallLog.create({
+            data: {
+                ...data,
+                inputTokens: data.inputTokens ?? null,
+                outputTokens: data.outputTokens ?? null,
+                costUsd: costUsd ?? null,
+            },
+        });
     }).catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn("Failed to log LLM call", { error: msg });

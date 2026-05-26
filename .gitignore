@@ -26,3 +26,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Test artifacts
+.playwright-cli/
+*.png

@@ -21,6 +21,9 @@ mock.module("../src/etapi/client.ts", () => ({
     updateNote: mock(async (noteId: string) => ({ noteId, title: "Mock Note", type: "text", mime: "text/html" })),
     probeAllCodex: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../src/rag/lancedb.ts", () => ({
@@ -30,7 +33,7 @@ mock.module("../src/rag/lancedb.ts", () => ({
     queryLore: mock(async () => []),
     deleteNoteChunks: mock(async () => {}),
     chunkText: mock(() => [] as string[]),
-    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk })),
+    checkLanceDbHealth: mock(async () => ({ ok: lancedbOk, ftsHealthy: lancedbOk })),
 }));
 
 mock.module("../src/db/client.ts", () => ({
@@ -73,7 +76,7 @@ describe("GET /health", () => {
             status: "ok",
             checks: {
                 allcodex: { ok: true },
-                lancedb: { ok: true },
+                lancedb: { ok: true, ftsHealthy: true },
                 database: { ok: true },
                 bootstrap: {
                     ok: true,

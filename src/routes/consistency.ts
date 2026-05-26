@@ -45,6 +45,7 @@ type NoteEntry = { noteId: string; title: string; content: string };
 async function resolveConsistencyNotes(
     noteIds: string[] | undefined,
     credentials: AllCodexCredentials,
+    userId?: string,
 ): Promise<NoteEntry[]> {
     if (noteIds?.length) {
         const search = noteIds.map((id) => `#noteId=${id}`).join(" OR ");
@@ -58,7 +59,7 @@ async function resolveConsistencyNotes(
         );
     }
 
-    const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K);
+    const rawChunks = await queryLore(CONSISTENCY_QUERY, CONSISTENCY_TOP_K, { userId });
     const compacted = await compactRagContext(rawChunks, { task: "consistency" });
     return compacted.map((chunk) => ({
         noteId: chunk.noteId,
@@ -115,8 +116,9 @@ function parseConsistencyResponse(raw: string): unknown {
 async function runConsistencyCheck(
     noteIds: string[] | undefined,
     credentials: AllCodexCredentials,
+    userId?: string,
 ): Promise<unknown> {
-    const notes = await resolveConsistencyNotes(noteIds, credentials);
+    const notes = await resolveConsistencyNotes(noteIds, credentials, userId);
 
     if (notes.length === 0) {
         return { issues: [], summary: "No lore notes found to check." };
@@ -127,6 +129,7 @@ async function runConsistencyCheck(
         jsonSchema: CONSISTENCY_JSON_SCHEMA,
         timeoutMs: CONSISTENCY_TIMEOUT_MS,
         maxTokens: CONSISTENCY_MAX_TOKENS,
+        userId,
     });
 
     return parseConsistencyResponse(raw);
@@ -154,6 +157,7 @@ export function createConsistencyRoute({
         .use(requireAuthImpl)
         .use(
         rateLimit({
+            scoping: "scoped",
             max: env.AI_RATE_LIMIT_MAX,
             duration: env.AI_RATE_LIMIT_WINDOW_MS,
             errorResponse: new Response(
@@ -169,7 +173,7 @@ export function createConsistencyRoute({
     "/check",
     async ({ body, session }) => {
         const credentials = await resolveAllCodexCredentials(session!.user.id);
-        return runConsistencyCheck(body.noteIds, credentials);
+        return runConsistencyCheck(body.noteIds, credentials, session!.user.id);
     },
     {
         body: t.Object({
@@ -203,7 +207,7 @@ export function createConsistencyRoute({
 
                     try {
                         send("status", { stage: "analyze", message: "Analyzing notes..." });
-                        const result = await runConsistencyCheck(body.noteIds, credentials);
+                        const result = await runConsistencyCheck(body.noteIds, credentials, session!.user.id);
                         send("result", result);
                         send("done", {});
                     } catch (e) {

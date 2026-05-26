@@ -43,6 +43,9 @@ mock.module("../src/etapi/client.ts", () => ({
     checkAllCodexHealth: mock(async () => ({ ok: true })),
     invalidateCredentialCache: mock(() => {}),
     probeAllCodex: mock(async () => ({ ok: true })),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../src/db/client.ts", () => ({
@@ -51,6 +54,10 @@ mock.module("../src/db/client.ts", () => ({
         brainDumpHistory: {
             create: mock(async () => ({ id: "h1" })),
             findUnique: mock(async () => null),
+        },
+        brainDumpRevisionLink: {
+            createMany: mock(async () => ({ count: 0 })),
+            findMany: mock(async () => []),
         },
         ragIndexMeta: {
             upsert: mock(async () => ({})),
@@ -96,6 +103,7 @@ const app = new Elysia().use(createBrainDumpRoute({
         reindexIds: [],
     }),
     indexNoteImpl: async () => {},
+    firePushNotificationsImpl: async () => {},
 }));
 
 describe("Brain dump routes", () => {
@@ -178,5 +186,108 @@ describe("Brain dump routes", () => {
         const body = await res.json();
         expect(body).toHaveProperty("code");
         expect(body.code).toBe("ENTRY_NOT_FOUND");
+    });
+
+    it("POST /brain-dump triggers success push notification if reindexIds has items", async () => {
+        const notifications: Array<{ userId: string; payload: any }> = [];
+        const testApp = new Elysia().use(createBrainDumpRoute({
+            requireAuthImpl: requireAuthBypass,
+            rateLimitEnv: {
+                BRAIN_DUMP_RATE_LIMIT_MAX: 10,
+                BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
+            },
+            runBrainDumpImpl: async () => ({
+                mode: "auto" as const,
+                summary: "Done",
+                created: [{ noteId: "n1", title: "T1", type: "character" as const }],
+                updated: [],
+                skipped: [],
+                reindexIds: ["n1"],
+            }),
+            firePushNotificationsImpl: async (userId, payload) => {
+                notifications.push({ userId, payload });
+            },
+            indexNoteImpl: async () => {},
+        }));
+
+        const { status } = await requestJson(testApp, "/brain-dump/", {
+            method: "POST",
+            json: {
+                rawText: "The archivist buried a fragment beneath the obsidian gate.",
+            },
+        });
+
+        expect(status).toBe(200);
+        expect(notifications.length).toBe(1);
+        expect(notifications[0].payload.title).toBe("Brain Dump Complete");
+        expect(notifications[0].payload.body).toContain("Created 1, updated 0");
+    });
+
+    it("POST /brain-dump/stream triggers success notification when stream completes successfully", async () => {
+        const notifications: Array<{ userId: string; payload: any }> = [];
+        const testApp = new Elysia().use(createBrainDumpRoute({
+            requireAuthImpl: requireAuthBypass,
+            rateLimitEnv: {
+                BRAIN_DUMP_RATE_LIMIT_MAX: 10,
+                BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
+            },
+            runBrainDumpStreamImpl: async function* () {
+                yield { type: "done" as const, raw: JSON.stringify({ created: [{ noteId: "n1" }], updated: [] }), tokensUsed: 0, model: "test", latencyMs: 0 };
+            },
+            firePushNotificationsImpl: async (userId, payload) => {
+                notifications.push({ userId, payload });
+            },
+            indexNoteImpl: async () => {},
+        }));
+
+        const res = await testApp.handle(
+            new Request("http://localhost/brain-dump/stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rawText: "The archivist buried a fragment beneath the obsidian gate." }),
+            })
+        );
+
+        expect(res.status).toBe(200);
+        // We need to read the body stream to end to trigger finally block
+        await res.text();
+        
+        expect(notifications.length).toBe(1);
+        expect(notifications[0].payload.title).toBe("Brain Dump Complete");
+        expect(notifications[0].payload.body).toContain("Created 1, updated 0");
+    });
+
+    it("POST /brain-dump/stream triggers failure notification when stream fails", async () => {
+        const notifications: Array<{ userId: string; payload: any }> = [];
+        const testApp = new Elysia().use(createBrainDumpRoute({
+            requireAuthImpl: requireAuthBypass,
+            rateLimitEnv: {
+                BRAIN_DUMP_RATE_LIMIT_MAX: 10,
+                BRAIN_DUMP_RATE_LIMIT_WINDOW_MS: 60000,
+            },
+            runBrainDumpStreamImpl: (async function* () {
+                yield; // satisfy generator contract before throwing
+                throw new Error("Pipeline failure");
+            }) as any,
+            firePushNotificationsImpl: async (userId, payload) => {
+                notifications.push({ userId, payload });
+            },
+            indexNoteImpl: async () => {},
+        }));
+
+        const res = await testApp.handle(
+            new Request("http://localhost/brain-dump/stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rawText: "The archivist buried a fragment beneath the obsidian gate." }),
+            })
+        );
+
+        expect(res.status).toBe(200);
+        await res.text(); // Read stream to end
+        
+        expect(notifications.length).toBe(1);
+        expect(notifications[0].payload.title).toBe("Brain Dump Failed");
+        expect(notifications[0].payload.body).toBe("Pipeline failure");
     });
 });

@@ -1,5 +1,5 @@
 import { upsertNoteChunks, chunkText } from "./lancedb.ts";
-import { getAllCodexNotes, getNoteContent, type EtapiCredentials } from "../etapi/client.ts";
+import { getAllCodexNotes, getNote, getNoteContent, type EtapiCredentials } from "../etapi/client.ts";
 import prisma from "../db/client.ts";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
@@ -15,7 +15,11 @@ import { rootLogger } from "../logger.ts";
  * Index a single note by ID.
  * Fetches content from AllCodex ETAPI, chunks it, embeds, and upserts into LanceDB.
  */
-export async function indexNote(noteId: string, credentials?: EtapiCredentials): Promise<void> {
+export async function indexNote(
+    noteId: string,
+    credentials?: EtapiCredentials,
+    userId: string = "default"
+): Promise<void> {
     try {
         const content = await getNoteContent(noteId, credentials);
         if (!content || content.trim().length === 0) return;
@@ -24,11 +28,16 @@ export async function indexNote(noteId: string, credentials?: EtapiCredentials):
         const plainText = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
         const chunks = chunkText(plainText);
 
-        // Get note title from ETAPI
-        const notes = await getAllCodexNotes(`#noteId=${noteId}`, credentials);
-        const noteTitle = notes[0]?.title ?? noteId;
+        // Get note metadata from ETAPI
+        const note = await getNote(noteId, credentials);
+        const noteTitle = note.title;
 
-        await upsertNoteChunks(noteId, noteTitle, chunks);
+        // Extract loreType and labels for LanceDB vector filtering
+        const loreTypeAttr = note.attributes?.find(a => a.type === "label" && a.name === "loreType");
+        const loreType = loreTypeAttr?.value ?? "";
+        const labels = note.attributes?.filter(a => a.type === "label").map(a => a.name) ?? [];
+
+        await upsertNoteChunks(noteId, noteTitle, chunks, userId, { loreType, labels });
 
         // Update RAG index metadata in PostgreSQL
         await prisma.ragIndexMeta.upsert({
@@ -62,7 +71,7 @@ export async function indexNote(noteId: string, credentials?: EtapiCredentials):
  * This is a slow operation; run it manually or on first setup.
  * Uses the #lore label to identify lore entries.
  */
-export async function fullReindex(credentials?: EtapiCredentials): Promise<{ indexed: number; failed: number }> {
+export async function fullReindex(credentials?: EtapiCredentials, userId: string = "default"): Promise<{ indexed: number; failed: number }> {
     rootLogger.info("Starting full RAG reindex");
 
     // Search for all notes tagged as lore entries
@@ -73,7 +82,7 @@ export async function fullReindex(credentials?: EtapiCredentials): Promise<{ ind
 
     for (const note of loreNotes) {
         try {
-            await indexNote(note.noteId, credentials);
+            await indexNote(note.noteId, credentials, userId);
             indexed++;
         } catch {
             failed++;
@@ -91,7 +100,7 @@ export async function fullReindex(credentials?: EtapiCredentials): Promise<{ ind
  *
  * Cheaper than fullReindex() — safe to run on a schedule.
  */
-export async function reindexStaleNotes(credentials?: EtapiCredentials): Promise<{
+export async function reindexStaleNotes(credentials?: EtapiCredentials, userId: string = "default"): Promise<{
     reindexed: number;
     failed: number;
     upToDate: number;
@@ -120,7 +129,7 @@ export async function reindexStaleNotes(credentials?: EtapiCredentials): Promise
 
         if (isStale) {
             try {
-                await indexNote(note.noteId, credentials);
+                await indexNote(note.noteId, credentials, userId);
                 reindexed++;
             } catch {
                 failed++;

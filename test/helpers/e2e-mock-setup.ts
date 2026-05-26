@@ -38,6 +38,9 @@ mock.module("../../src/etapi/client.ts", () => ({
     updateNote: mock(async (id: string) => ({ noteId: id })),
     createRelation: mock(async () => {}),
     deleteNote: mock(async () => {}),
+    getNoteRevisions: mock(async () => []),
+    postNoteRevision: mock(async () => {}),
+    getRevisionContent: mock(async () => ""),
 }));
 
 mock.module("../../src/integrations/allcodex.ts", () => ({
@@ -83,6 +86,13 @@ mock.module("../../src/env.ts", () => ({
         RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD: 0.85,
         RAG_CONTEXT_MAX_TOKENS: 6000,
         RAG_CHUNK_SUMMARY_THRESHOLD_TOKENS: 600,
+        RAG_HYBRID_VECTOR_K: 0,
+        RAG_HYBRID_BM25_K: 0,
+        RAG_HYBRID_RRF_K: 60,
+        RAG_VECTOR_SIMILARITY_THRESHOLD: 0.3,
+        RAG_RERANK_TOP_N: 10,
+        RAG_RERANK_DOC_MAX_CHARS: 2048,
+        RAG_RERANK_ENABLED: "false",
         AI_RATE_LIMIT_MAX: 1000,
         AI_RATE_LIMIT_WINDOW_MS: 60_000,
         OPENROUTER_API_KEY: "test-key",
