@@ -197,3 +197,36 @@ model LoreSessionMessage {
   @@index([sessionId, createdAt])
   @@map("lore_session_messages")
 }
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model BrainDumpJob {
+  id                String    @id @default(cuid())
+  userId            String
+  batchId           String
+  rawText           String
+  parentNoteId      String?
+  mode              String    // "auto" | "review"
+  status            String    // "queued" | "running" | "done" | "failed" | "cancelled"
+  error             String?
+  resultHistoryId   String?   // FK to BrainDumpHistory.id on success
+  position          Int       // order within batch
+  createdAt         DateTime  @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+
+  @@index([status, createdAt])  // worker polling
+  @@index([userId, batchId])    // batch queries
+  @@index([batchId])
+  @@map("brain_dump_jobs")
+}
