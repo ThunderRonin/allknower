@@ -16,7 +16,7 @@ ALTER TABLE "brain_dump_revision_links" ADD COLUMN "userId" TEXT;
 UPDATE "brain_dump_revision_links" SET "userId" = COALESCE(
     (SELECT "userId" FROM "brain_dump_history" WHERE "brain_dump_history"."id" = "brain_dump_revision_links"."brainDumpHistoryId"),
     ''
-);
+) WHERE "userId" IS NULL;
 
 ALTER TABLE "brain_dump_revision_links" ALTER COLUMN "userId" SET NOT NULL;
 CREATE INDEX "brain_dump_revision_links_userId_idx" ON "brain_dump_revision_links"("userId");
