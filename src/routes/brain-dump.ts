@@ -319,7 +319,7 @@ export function createBrainDumpRoute({
 
     .post("/batch", async ({ session, body }) => {
         const userId = session!.user.id;
-        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const batchId = `batch_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
         const jobs = await prisma.brainDumpJob.createManyAndReturn({
             data: body.items.map((item: { rawText: string; parentNoteId?: string; mode?: string }, idx: number) => ({
                 userId,
