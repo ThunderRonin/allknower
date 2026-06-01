@@ -3,8 +3,9 @@ on:
   pull_request:
     branches: [main]
 
+# GITHUB_TOKEN stays read-only; the PAT (supplied only at push time) does the write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   update-lockfile:
@@ -15,8 +16,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          # PAT (not GITHUB_TOKEN) so the lockfile commit re-triggers required CI checks
-          token: ${{ secrets.LOCKFILE_PAT }}
+          # Do NOT persist any token to .git/config — the freshly-bumped deps run
+          # before the push, and an on-disk credential would be readable by them.
+          persist-credentials: false
 
       - name: Checkout PR branch by SHA
         env:
@@ -27,14 +29,22 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - run: bun install --no-frozen-lockfile
+      # --ignore-scripts: do not run lifecycle scripts from the bumped dependencies.
+      # Lockfile resolution does not need them, and they are untrusted code.
+      - run: bun install --no-frozen-lockfile --ignore-scripts
 
-      - name: Commit updated lockfile
+      - name: Commit & push updated lockfile
         env:
           HEAD_REF: ${{ github.head_ref }}
+          # Registered secret -> masked in logs. Only introduced AFTER install runs.
+          GH_PAT: ${{ secrets.LOCKFILE_PAT }}
         run: |
+          if git diff --quiet -- bun.lock; then
+            echo "bun.lock unchanged — nothing to push"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bun.lock
-          git diff --cached --quiet || git commit -m "chore: regenerate bun.lock for dependabot update"
-          git push origin "HEAD:$HEAD_REF"
+          git commit -m "chore: regenerate bun.lock for dependabot update"
+          git push "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
