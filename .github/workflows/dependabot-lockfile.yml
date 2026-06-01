@@ -15,7 +15,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # PAT (not GITHUB_TOKEN) so the lockfile commit re-triggers required CI checks
+          token: ${{ secrets.LOCKFILE_PAT }}
 
       - name: Checkout PR branch by SHA
         env:
