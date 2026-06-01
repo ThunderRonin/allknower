@@ -29,9 +29,11 @@ jobs:
       - run: bun install --no-frozen-lockfile
 
       - name: Commit updated lockfile
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bun.lock
           git diff --cached --quiet || git commit -m "chore: regenerate bun.lock for dependabot update"
-          git push
+          git push origin "HEAD:$HEAD_REF"
