@@ -15,6 +15,13 @@ mock.module("../../src/auth/index.ts", () => ({
     },
 }));
 
+mock.module("../../src/auth/owner.ts", () => ({
+    OWNER_USER_ID_KEY: "ownerUserId",
+    ensureOwnerUserId: mock(async (userId: string) => userId),
+    getOwnerUserId: mock(async () => "test-user"),
+    isOwnerUserId: mock(async (userId: string | null | undefined) => userId === "test-user"),
+}));
+
 import { describe, expect, it, afterAll, beforeAll } from "bun:test";
 import { cleanupLanceDb } from "../helpers/e2e-harness.ts";
 import { requestJson, type RouteApp } from "../helpers/http.ts";

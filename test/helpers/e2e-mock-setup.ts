@@ -103,6 +103,7 @@ mock.module("../../src/env.ts", () => ({
         NODE_ENV: "test",
         SESSION_TOKEN_THRESHOLD: 80000,
         BETTER_AUTH_SECRET: "test-secret-minimum-16-chars",
+        BETTER_AUTH_URL: "http://localhost:3001",
         ALLCODEX_ETAPI_TOKEN: "test-etapi-token",
         ALLCODEX_URL: "http://localhost:8080",
         PORTAL_INTERNAL_SECRET: "test-portal-secret",

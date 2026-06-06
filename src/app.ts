@@ -18,7 +18,57 @@ import { autoProvisionRoute } from "./routes/auto-provision.ts";
 import { notificationsRoute } from "./routes/notifications.ts";
 import { usageRoute } from "./routes/usage.ts";
 import { auth } from "./auth/index.ts";
+import { ensureOwnerUserId, isOwnerUserId } from "./auth/owner.ts";
+import { hasBootstrapSecret, isEmailSignUpRequest } from "./auth/sign-up-gate.ts";
 import { env } from "./env.ts";
+import prisma from "./db/client.ts";
+
+async function readSignUpEmail(request: Request): Promise<string | null> {
+    try {
+        const body = await request.clone().json() as { email?: unknown };
+        return typeof body.email === "string" ? body.email : null;
+    } catch {
+        return null;
+    }
+}
+
+async function ensureBootstrapOwner(email: string) {
+    const normalized = email.trim();
+    if (!normalized) {
+        throw new Error("Bootstrap sign-up email missing.");
+    }
+
+    const candidateEmails = Array.from(new Set([normalized, normalized.toLowerCase()]));
+    const user = await prisma.user.findFirst({
+        where: { email: { in: candidateEmails } },
+        select: { id: true },
+    });
+
+    if (!user) {
+        throw new Error(`Bootstrap user not found after sign-up: ${normalized}`);
+    }
+
+    await ensureOwnerUserId(user.id);
+}
+
+async function handleAuthRequest(request: Request): Promise<Response> {
+    const isEmailSignUp = isEmailSignUpRequest(request);
+    if (isEmailSignUp && !hasBootstrapSecret(request, env.PORTAL_INTERNAL_SECRET)) {
+        return Response.json(
+            { error: "FORBIDDEN", message: "Sign-up is disabled. Use the owner account." },
+            { status: 403 }
+        );
+    }
+
+    const signUpEmail = isEmailSignUp ? await readSignUpEmail(request) : null;
+    const response = await auth.handler(request);
+
+    if (isEmailSignUp && response.ok && signUpEmail) {
+        await ensureBootstrapOwner(signUpEmail);
+    }
+
+    return response;
+}
 
 export const app = new Elysia()
     // ── Request logging ───────────────────────────────────────────────────────
@@ -61,8 +111,23 @@ export const app = new Elysia()
     )
 
     // ── better-auth handler ───────────────────────────────────────────────────
-    .all("/api/auth/*", ({ request }) => auth.handler(request), {
+    .all("/api/auth/*", ({ request }) => handleAuthRequest(request), {
         parse: "none",
+        detail: { hide: true },
+    })
+    .get("/auth/owner-session", async ({ request, set }) => {
+        const session = await auth.api.getSession({ headers: request.headers });
+        const userId = session?.user?.id;
+        if (!session || !userId) {
+            set.status = 401;
+            return { error: "Unauthorized" };
+        }
+        if (!(await isOwnerUserId(userId))) {
+            set.status = 403;
+            return { error: "Forbidden" };
+        }
+        return { ok: true, user: session.user };
+    }, {
         detail: { hide: true },
     })
 
