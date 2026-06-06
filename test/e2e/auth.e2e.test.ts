@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "crypto";
 import type { PrismaClient } from "@prisma/client";
-import type { App } from "../../src/app.ts";
+type AppModule = typeof import("../../src/app.ts");
 
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL ||= "postgresql://allknower:allknower@localhost:5436/allknower";
@@ -14,7 +14,7 @@ const ownerEmail = `auth-owner-${runId}@example.com`;
 const blockedEmail = `auth-blocked-${runId}@example.com`;
 const ownerPassword = `AuthOwner-${runId}-Password1!`;
 
-let app: App;
+let app: AppModule["app"];
 let prisma: PrismaClient;
 let baseUrl = "http://localhost:3001";
 let bootstrapSecret = "";

@@ -2,13 +2,30 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const findUniqueMock = mock(async () => null as { value: string } | null);
 const createMock = mock(async () => ({ key: "ownerUserId", value: "owner-1" }));
+const unusedModel = {};
 
 mock.module("../db/client.ts", () => ({
     default: {
+        account: unusedModel,
         appConfig: {
             findUnique: findUniqueMock,
             create: createMock,
         },
+        brainDumpHistory: unusedModel,
+        brainDumpJob: unusedModel,
+        brainDumpRevisionLink: unusedModel,
+        lLMCallLog: unusedModel,
+        loreSession: unusedModel,
+        loreSessionMessage: unusedModel,
+        modelPricing: unusedModel,
+        pushSubscription: unusedModel,
+        ragIndexMeta: unusedModel,
+        relationHistory: unusedModel,
+        relationSuggestion: unusedModel,
+        session: unusedModel,
+        user: unusedModel,
+        userIntegration: unusedModel,
+        verification: unusedModel,
     },
 }));
 

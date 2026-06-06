@@ -23,12 +23,16 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { requestJson } from "../../test/helpers/http.ts";
 
-const { requireAuth, requireOwnerAuth } = await import("./auth-guard.ts");
+const { requireAuth, requireOwnerAuth, requireSessionAuth } = await import("./auth-guard.ts");
 
 // Build minimal app that uses requireAuth and has a protected route
 const app = new Elysia()
     .use(requireAuth)
     .get("/protected", () => ({ ok: true }));
+
+const sessionApp = new Elysia()
+    .use(requireSessionAuth)
+    .get("/session-only", () => ({ ok: true }));
 
 const ownerApp = new Elysia()
     .use(requireOwnerAuth)
@@ -71,21 +75,26 @@ describe("requireAuth", () => {
         );
     });
 
-    it("returns 401 even when getSession throws", async () => {
+    it("returns 503 when getSession throws", async () => {
         mockGetSession.mockRejectedValue(new Error("DB connection error"));
-        try {
-            const { status } = await requestJson(app, "/protected");
-            // If Elysia catches and returns 500+ that's also acceptable — just not 200
-            expect(status).not.toBe(200);
-        } catch {
-            // If it propagates, the test still passes (no 200 was served)
-        }
+        const { status, json } = await requestJson(app, "/protected");
+        expect(status).toBe(503);
+        expect((json as any).error).toBe("Auth unavailable");
     });
 
     it('response has Content-Type: application/json on 401', async () => {
         mockGetSession.mockResolvedValue(null);
         const { response } = await requestJson(app, "/protected");
         expect(response.headers.get("Content-Type")).toContain("application/json");
+    });
+});
+
+describe("requireSessionAuth", () => {
+    it("returns 503 when session lookup throws", async () => {
+        mockGetSession.mockRejectedValue(new Error("DB connection error"));
+        const { status, json } = await requestJson(sessionApp, "/session-only");
+        expect(status).toBe(503);
+        expect((json as any).error).toBe("Auth unavailable");
     });
 });
 
@@ -117,5 +126,13 @@ describe("requireOwnerAuth", () => {
         const { status, json } = await requestJson(ownerApp, "/owner-only");
         expect(status).toBe(503);
         expect((json as any).error).toBe("Owner not configured");
+    });
+
+    it("returns 503 when owner lookup throws", async () => {
+        mockGetOwnerUserId.mockRejectedValue(new Error("DB connection error"));
+        mockGetSession.mockResolvedValue({ user: { id: "owner-1" } } as any);
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(503);
+        expect((json as any).error).toBe("Auth unavailable");
     });
 });

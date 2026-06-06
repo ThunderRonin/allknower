@@ -33,15 +33,22 @@ async function readSignUpEmail(request: Request): Promise<string | null> {
 }
 
 async function ensureBootstrapOwner(email: string) {
-    const candidateEmails = Array.from(new Set([email, email.toLowerCase()]));
+    const normalized = email.trim();
+    if (!normalized) {
+        throw new Error("Bootstrap sign-up email missing.");
+    }
+
+    const candidateEmails = Array.from(new Set([normalized, normalized.toLowerCase()]));
     const user = await prisma.user.findFirst({
         where: { email: { in: candidateEmails } },
         select: { id: true },
     });
 
-    if (user) {
-        await ensureOwnerUserId(user.id);
+    if (!user) {
+        throw new Error(`Bootstrap user not found after sign-up: ${normalized}`);
     }
+
+    await ensureOwnerUserId(user.id);
 }
 
 async function handleAuthRequest(request: Request): Promise<Response> {
