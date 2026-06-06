@@ -39,7 +39,7 @@ export const requireSessionAuth = new Elysia({ name: "allknower/require-session-
 export const requireOwnerAuth = new Elysia({ name: "allknower/require-owner-auth" })
     .resolve({ as: "scoped" }, async ({ request }) => {
         const sessionResult = await resolveSession(request.headers);
-        if (sessionResult.authUnavailable) {
+        if (sessionResult.authUnavailable || !sessionResult.session) {
             return { ...sessionResult, ownerUserId: null };
         }
 

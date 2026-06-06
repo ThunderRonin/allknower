@@ -1,5 +1,6 @@
+import "../helpers/e2e-mock-setup.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 type AppModule = typeof import("../../src/app.ts");
 

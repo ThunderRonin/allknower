@@ -106,6 +106,15 @@ describe("requireOwnerAuth", () => {
         expect((json as any).error).toBe("Unauthorized");
     });
 
+    it("returns 401 without owner lookup when no session is present", async () => {
+        mockGetSession.mockResolvedValue(null);
+        mockGetOwnerUserId.mockRejectedValue(new Error("DB connection error"));
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(401);
+        expect((json as any).error).toBe("Unauthorized");
+        expect(mockGetOwnerUserId).not.toHaveBeenCalled();
+    });
+
     it("returns 403 when authenticated user is not owner", async () => {
         mockGetSession.mockResolvedValue({ user: { id: "viewer-1" } } as any);
         const { status, json } = await requestJson(ownerApp, "/owner-only");
