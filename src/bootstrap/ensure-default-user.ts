@@ -1,6 +1,7 @@
 import prisma from "../db/client.ts";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
+import { ensureOwnerUserId } from "../auth/owner.ts";
 
 const log = rootLogger.child({ module: "bootstrap" });
 
@@ -21,6 +22,7 @@ export async function ensureDefaultUser(): Promise<DefaultUser> {
 
     if (existing) {
         log.info(`Default user resolved: ${existing.email} (${existing.id})`);
+        await ensureOwnerUserId(existing.id);
         return { ...existing, isNew: false };
     }
 
@@ -33,6 +35,7 @@ export async function ensureDefaultUser(): Promise<DefaultUser> {
         headers: {
             "Content-Type": "application/json",
             Origin: env.BETTER_AUTH_URL,
+            "X-AllCodex-Bootstrap-Secret": env.PORTAL_INTERNAL_SECRET,
         },
         body: JSON.stringify({
             email: DEFAULT_EMAIL,
@@ -57,5 +60,6 @@ export async function ensureDefaultUser(): Promise<DefaultUser> {
     }
 
     log.info(`Default user created: ${user.email} (${user.id})`);
+    await ensureOwnerUserId(user.id);
     return { ...user, isNew: true };
 }

@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { auth } from "../auth/index.ts";
+import { isOwnerUserId } from "../auth/owner.ts";
 import { env } from "../env.ts";
 import { requireAuth } from "../plugins/auth-guard.ts";
 import {
@@ -87,6 +88,10 @@ export const internalIntegrationsRoute = new Elysia({ name: "internal-integratio
             if (!userId) {
                 set.status = 401;
                 return { error: "Unauthorized" };
+            }
+            if (!(await isOwnerUserId(userId))) {
+                set.status = 403;
+                return { error: "Forbidden" };
             }
 
             try {

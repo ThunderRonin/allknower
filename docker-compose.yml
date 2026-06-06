@@ -17,7 +17,7 @@ services:
       POSTGRES_PASSWORD: allknower
       POSTGRES_DB: allknower
     ports:
-      - "5433:5432"
+      - "5436:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

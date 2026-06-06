@@ -1,6 +1,7 @@
 import { mock } from "bun:test";
 
 const mockGetSession = mock(async () => null as { user?: { id: string } } | null);
+const mockGetOwnerUserId = mock(async () => "owner-1" as string | null);
 
 mock.module("../auth/index.ts", () => ({
     auth: {
@@ -11,19 +12,33 @@ mock.module("../auth/index.ts", () => ({
     },
 }));
 
+mock.module("../auth/owner.ts", () => ({
+    OWNER_USER_ID_KEY: "ownerUserId",
+    ensureOwnerUserId: mock(async (userId: string) => userId),
+    getOwnerUserId: mockGetOwnerUserId,
+    isOwnerUserId: mock(async (userId: string | null | undefined) => userId === await mockGetOwnerUserId()),
+}));
+
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
-import { requireAuth } from "./auth-guard.ts";
 import { requestJson } from "../../test/helpers/http.ts";
+
+const { requireAuth, requireOwnerAuth } = await import("./auth-guard.ts");
 
 // Build minimal app that uses requireAuth and has a protected route
 const app = new Elysia()
     .use(requireAuth)
     .get("/protected", () => ({ ok: true }));
 
+const ownerApp = new Elysia()
+    .use(requireOwnerAuth)
+    .get("/owner-only", ({ session }) => ({ ok: true, userId: session!.user.id }));
+
 beforeEach(() => {
     mockGetSession.mockClear();
     mockGetSession.mockResolvedValue(null);
+    mockGetOwnerUserId.mockClear();
+    mockGetOwnerUserId.mockResolvedValue("owner-1");
 });
 
 describe("requireAuth", () => {
@@ -40,14 +55,14 @@ describe("requireAuth", () => {
         expect(body.error).toBe("Unauthorized");
     });
 
-    it("passes through (200) when session is present", async () => {
-        mockGetSession.mockResolvedValue({ user: { id: "user-1" } } as any);
+    it("passes through (200) when owner session is present", async () => {
+        mockGetSession.mockResolvedValue({ user: { id: "owner-1" } } as any);
         const { status } = await requestJson(app, "/protected");
         expect(status).toBe(200);
     });
 
     it("calls auth.api.getSession with request headers", async () => {
-        mockGetSession.mockResolvedValue({ user: { id: "user-1" } } as any);
+        mockGetSession.mockResolvedValue({ user: { id: "owner-1" } } as any);
         await requestJson(app, "/protected", {
             headers: { "Cookie": "test-cookie" },
         });
@@ -71,5 +86,36 @@ describe("requireAuth", () => {
         mockGetSession.mockResolvedValue(null);
         const { response } = await requestJson(app, "/protected");
         expect(response.headers.get("Content-Type")).toContain("application/json");
+    });
+});
+
+describe("requireOwnerAuth", () => {
+    it("returns 401 when no session is present", async () => {
+        mockGetSession.mockResolvedValue(null);
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(401);
+        expect((json as any).error).toBe("Unauthorized");
+    });
+
+    it("returns 403 when authenticated user is not owner", async () => {
+        mockGetSession.mockResolvedValue({ user: { id: "viewer-1" } } as any);
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(403);
+        expect((json as any).error).toBe("Forbidden");
+    });
+
+    it("passes through when authenticated user is owner", async () => {
+        mockGetSession.mockResolvedValue({ user: { id: "owner-1" } } as any);
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(200);
+        expect((json as any).userId).toBe("owner-1");
+    });
+
+    it("returns 503 when owner is not configured", async () => {
+        mockGetOwnerUserId.mockResolvedValue(null);
+        mockGetSession.mockResolvedValue({ user: { id: "owner-1" } } as any);
+        const { status, json } = await requestJson(ownerApp, "/owner-only");
+        expect(status).toBe(503);
+        expect((json as any).error).toBe("Owner not configured");
     });
 });
