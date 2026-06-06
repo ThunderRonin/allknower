@@ -1,4 +1,3 @@
-import prisma from "../db/client.ts";
 import { setCachedPricing, STATIC_FALLBACK_PRICING, type ModelPrice } from "./pricing-cache.ts";
 
 interface OpenRouterModel {
@@ -7,6 +6,23 @@ interface OpenRouterModel {
     prompt?: string;
     completion?: string;
   };
+}
+
+const PRICE_PER_M_DB_LIMIT = 1_000_000;
+
+async function getPrisma() {
+  return (await import("../db/client.ts")).default;
+}
+
+function toStorablePricePerMillion(perTokenPrice: number): number | null {
+  if (!Number.isFinite(perTokenPrice) || perTokenPrice < 0) return null;
+
+  const pricePerMillion = Number((perTokenPrice * 1_000_000).toFixed(8));
+  if (!Number.isFinite(pricePerMillion) || pricePerMillion >= PRICE_PER_M_DB_LIMIT) {
+    return null;
+  }
+
+  return pricePerMillion;
 }
 
 export function buildPricingMap(
@@ -20,12 +36,14 @@ export function buildPricingMap(
 
     const perTokenInput = Number.parseFloat(promptStr);
     const perTokenOutput = Number.parseFloat(completionStr);
-    if (!Number.isFinite(perTokenInput) || !Number.isFinite(perTokenOutput)) continue;
-    if (perTokenInput === 0 && perTokenOutput === 0) continue;
+    const pricePerMInput = toStorablePricePerMillion(perTokenInput);
+    const pricePerMOutput = toStorablePricePerMillion(perTokenOutput);
+    if (pricePerMInput === null || pricePerMOutput === null) continue;
+    if (pricePerMInput === 0 && pricePerMOutput === 0) continue;
 
     map.set(m.id, {
-      pricePerMInput: perTokenInput * 1_000_000,
-      pricePerMOutput: perTokenOutput * 1_000_000,
+      pricePerMInput,
+      pricePerMOutput,
     });
   }
   return map;
@@ -49,6 +67,7 @@ export async function fetchAndCachePricing(): Promise<void> {
   }
 
   const freshPricing = buildPricingMap(models);
+  const prisma = await getPrisma();
 
   const upserts = Array.from(freshPricing.entries()).map(([modelId, price]) =>
     prisma.modelPricing.upsert({
@@ -91,6 +110,7 @@ export async function fetchAndCachePricing(): Promise<void> {
 
 export async function initPricingCacheFromDb(): Promise<void> {
   try {
+    const prisma = await getPrisma();
     const rows = await prisma.modelPricing.findMany();
     for (const row of rows) {
       setCachedPricing(row.modelId, {
