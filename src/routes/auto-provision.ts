@@ -10,6 +10,11 @@ const log = rootLogger.child({ module: "auto-provision" });
 export const autoProvisionRoute = new Elysia({ name: "auto-provision" }).post(
     "/internal/auto-provision",
     async ({ request, set }) => {
+        if (env.NODE_ENV === "production") {
+            set.status = 404;
+            return { error: "Not found" };
+        }
+
         if (!env.PORTAL_INTERNAL_SECRET) {
             set.status = 503;
             return { error: "PORTAL_INTERNAL_SECRET is not configured." };

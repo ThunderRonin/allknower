@@ -64,7 +64,7 @@ docker compose up -d postgres
 # 3. Configure environment
 cp .env.example .env
 # .env.example already matches docker-compose.yml:
-# DATABASE_URL=postgresql://allknower:allknower@localhost:5432/allknower
+# DATABASE_URL=postgresql://allknower:allknower@localhost:5436/allknower
 # Fill in OPENROUTER_API_KEY, ALLCODEX_ETAPI_TOKEN, BETTER_AUTH_SECRET
 
 # 4. Run database migrations
