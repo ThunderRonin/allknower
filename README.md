@@ -1,4 +1,4 @@
-# AllKnower
+# <img src="../logo/grimoire.svg" width="40" height="40" align="center" style="margin-right: 10px;" /> AllKnower
 
 The intelligence layer behind [AllCodex](https://github.com/ThunderRonin/AllCodex). An AI orchestration service for managing the **All Reach** fantasy world grimoire, built with **Elysia** on **Bun**.
 
