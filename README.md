@@ -6,17 +6,17 @@ The intelligence layer behind [AllCodex](https://github.com/ThunderRonin/AllCode
 
 ## What it does
 
-AllKnower sits behind AllCodex and provides:
+AllKnower provides the following services:
 
 | Feature | Description |
 |---|---|
-| **Brain Dump** | Paste raw worldbuilding notes → LLM extracts structured lore entities → creates/updates notes in AllCodex via ETAPI. Auto-applies high-confidence relation suggestions after creation. |
-| **RAG System** | All lore is embedded via cloud models (Qwen) and stored in LanceDB. Reranking via OpenRouter's native `/rerank` endpoint (`cohere/rerank-4-pro`) for second-pass relevance scoring after initial vector retrieval. Falls back to vector similarity on timeout. |
-| **Article Copilot** | Conversational AI assistant scoped to a single lore article. Proposes edits, creates linked notes, and updates labels/relations — all within an explicit writable scope to prevent unintended changes to other notes. |
-| **Lore Autocomplete** | Instant title suggestions via two-phase lookup (SQL prefix match + semantic fallback) for inline linking in AllCodex. |
+| **Brain Dump** | Paste raw worldbuilding notes to extract structured lore entities and create or update notes in AllCodex via the ETAPI. AllKnower auto-applies high-confidence relation suggestions after creation. |
+| **RAG System** | AllKnower embeds all lore via Qwen and stores it in LanceDB. It handles reranking via OpenRouter's native `/rerank` endpoint (`cohere/rerank-4-pro`) for second-pass relevance scoring, falling back to vector similarity on timeout. |
+| **Article Copilot** | Conversational AI assistant scoped to a single lore article. It proposes edits, creates linked notes, and updates labels and relations within an explicit writable scope to prevent unintended changes to other notes. |
+| **Lore Autocomplete** | Instant title suggestions via two-phase lookup (SQL prefix match and semantic fallback) for inline linking in AllCodex. |
 | **Consistency Checker** | On-demand scan for contradictions, timeline conflicts, orphaned references, and naming inconsistencies. |
-| **Relationship Suggester** | Suggests connections between entities with `high/medium/low` confidence. High-confidence suggestions are auto-applied to AllCodex on brain dump. |
-| **Relation Writing** | `POST /suggest/relationships/apply` — writes approved relation suggestions as Trilium `relation` attributes (bidirectional by default). All applied relations logged to `relation_history`. |
+| **Relationship Suggester** | Suggests connections between entities with `high/medium/low` confidence. AllKnower auto-applies high-confidence suggestions during brain dumps. |
+| **Relation Writing** | `POST /suggest/relationships/apply`: Writes approved relation suggestions as Trilium `relation` attributes (bidirectional by default). AllKnower logs applied relations to `relation_history`. |
 | **Lore Gap Detector** | Identifies underdeveloped areas in the worldbuilding (e.g., "many characters, few locations"). |
 
 ---
@@ -80,7 +80,7 @@ curl http://localhost:3001/health
 Server starts at `http://localhost:3001`.
 API docs at `http://localhost:3001/reference`.
 
-`/health` is a composite dependency check. It returns `503` with `status: "degraded"` until required dependencies such as Postgres, AllCodex Core, and LanceDB are reachable; that is expected during partial local setup.
+`/health` is a composite dependency check. It returns `503` with `status: "degraded"` until required dependencies like Postgres, AllCodex Core, and LanceDB are reachable. Degraded status occurs during partial local setups when dependencies are offline.
 
 ---
 
@@ -160,13 +160,6 @@ If you want to contribute:
 - New routes need an entry in the API table in this README
 
 See [docs/remaining-features-plan.md](docs/remaining-features-plan.md) for a list of planned features with detailed specs if you're looking for something to pick up.
-
----
-
-## License
-
-MIT
----
 
 ## License
 
