@@ -150,6 +150,104 @@ export interface LLMResult {
  * - Fire-and-forget LLM call logging to Prisma (never blocks the pipeline)
  * - response-healing plugin for auto-fixing malformed JSON
  */
+function mapLocalResponseFormat(responseFormat?: any): any {
+    if (!responseFormat) return undefined;
+    if (responseFormat.type === "json_object") {
+        return { type: "json_object" };
+    }
+    if (responseFormat.type === "json_schema") {
+        return {
+            type: "json_schema",
+            json_schema: {
+                name: responseFormat.jsonSchema.name,
+                schema: responseFormat.jsonSchema.schema,
+                strict: responseFormat.jsonSchema.strict,
+            },
+        };
+    }
+    return undefined;
+}
+
+async function handleLocalFallback(
+    currentModel: string,
+    messages: any[],
+    options: any,
+    signal: AbortSignal,
+    startTime: number
+) {
+    const localResponseFormat = mapLocalResponseFormat(options?.responseFormat);
+
+    const response = await localClient.chat.completions.create({
+        model: cleanLocalModelName(currentModel),
+        messages: messages as any,
+        temperature: options?.temperature ?? 0.3,
+        max_tokens: options?.maxTokens ?? 30000,
+        ...(localResponseFormat && { response_format: localResponseFormat }),
+    }, {
+        signal,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices?.[0]?.message?.content ?? "";
+    const inputTokens = response.usage?.prompt_tokens ?? 0;
+    const outputTokens = response.usage?.completion_tokens ?? 0;
+    const tokensUsed = inputTokens + outputTokens || response.usage?.total_tokens || 0;
+
+    return { raw, tokensUsed, inputTokens, outputTokens, latencyMs, usedModel: currentModel };
+}
+
+async function handleCloudFallback(
+    consecutiveOpenRouterModels: string[],
+    messages: any[],
+    options: any,
+    signal: AbortSignal,
+    startTime: number,
+    task: TaskType
+) {
+    const [orPrimary, ...orFallbacks] = consecutiveOpenRouterModels;
+
+    const response = await openrouter.chat.send({
+        httpReferer: "https://allknower.local",
+        appTitle: "AllKnower",
+        chatGenerationParams: {
+            model: orPrimary,
+            ...(orFallbacks.length > 0 && { models: orFallbacks }),
+            messages: messages as any,
+            temperature: options?.temperature ?? 0.3,
+            maxTokens: options?.maxTokens ?? 30000,
+            ...(options?.responseFormat && {
+                responseFormat: options.responseFormat as any,
+            }),
+            ...(options?.requestId && {
+                trace: {
+                    traceId: options.requestId,
+                    spanName: task,
+                } as any,
+            }),
+            ...(options?.reasoning && { reasoning: options.reasoning }),
+            plugins: [
+                { id: "response-healing" as const },
+            ],
+            provider: {
+                allowFallbacks: true,
+                ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
+            } as any,
+        },
+    }, {
+        signal,
+    } as any);
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = (response as any).choices?.[0]?.message?.content ?? "";
+    const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
+    const outputTokens = (response as any).usage?.completion_tokens ?? 0;
+    const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
+    const usedModel = (response as any).model ?? orPrimary;
+
+    return { raw, tokensUsed, inputTokens, outputTokens, latencyMs, usedModel };
+}
+
 export async function callWithFallback(
     task: TaskType,
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
@@ -190,48 +288,10 @@ export async function callWithFallback(
         const startTime = performance.now();
 
         try {
+            let result: { raw: string; tokensUsed: number; inputTokens: number; outputTokens: number; latencyMs: number; usedModel: string };
+
             if (isLocalModel(currentModel)) {
-                const responseFormat = options?.responseFormat;
-                let localResponseFormat: any = undefined;
-                if (responseFormat) {
-                    if (responseFormat.type === "json_object") {
-                        localResponseFormat = { type: "json_object" };
-                    } else if (responseFormat.type === "json_schema") {
-                        localResponseFormat = {
-                            type: "json_schema",
-                            json_schema: {
-                                name: responseFormat.jsonSchema.name,
-                                schema: responseFormat.jsonSchema.schema,
-                                strict: responseFormat.jsonSchema.strict,
-                            },
-                        };
-                    }
-                }
-
-                const response = await localClient.chat.completions.create({
-                    model: cleanLocalModelName(currentModel),
-                    messages: messages as any,
-                    temperature: options?.temperature ?? 0.3,
-                    max_tokens: options?.maxTokens ?? 30000,
-                    ...(localResponseFormat && { response_format: localResponseFormat }),
-                }, {
-                    signal: controller.signal,
-                });
-
-                const latencyMs = Math.round(performance.now() - startTime);
-                const raw = response.choices?.[0]?.message?.content ?? "";
-                const inputTokens = response.usage?.prompt_tokens ?? 0;
-                const outputTokens = response.usage?.completion_tokens ?? 0;
-                const tokensUsed = inputTokens + outputTokens || response.usage?.total_tokens || 0;
-                const usedModel = currentModel;
-
-                if (usedModel !== models[0]) {
-                    log.info("Task fell back to alternate model", { task, from: models[0], to: usedModel });
-                }
-
-                logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
-
-                return { raw, tokensUsed, model: usedModel, latencyMs };
+                result = await handleLocalFallback(currentModel, messages, options, controller.signal, startTime);
             } else {
                 // Cloud (OpenRouter) model - try it and consecutive OpenRouter fallbacks
                 const openRouterModels = models.slice(i);
@@ -240,55 +300,19 @@ export async function callWithFallback(
                     ? openRouterModels 
                     : openRouterModels.slice(0, nextLocalIndex);
                 
-                const [orPrimary, ...orFallbacks] = consecutiveOpenRouterModels;
-
-                const response = await openrouter.chat.send({
-                    httpReferer: "https://allknower.local",
-                    appTitle: "AllKnower",
-                    chatGenerationParams: {
-                        model: orPrimary,
-                        ...(orFallbacks.length > 0 && { models: orFallbacks }),
-                        messages: messages as any,
-                        temperature: options?.temperature ?? 0.3,
-                        maxTokens: options?.maxTokens ?? 30000,
-                        ...(options?.responseFormat && {
-                            responseFormat: options.responseFormat as any,
-                        }),
-                        ...(options?.requestId && {
-                            trace: {
-                                traceId: options.requestId,
-                                spanName: task,
-                            } as any,
-                        }),
-                        ...(options?.reasoning && { reasoning: options.reasoning }),
-                        plugins: [
-                            { id: "response-healing" as const },
-                        ],
-                        provider: {
-                            allowFallbacks: true,
-                            ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
-                            ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
-                        } as any,
-                    },
-                }, {
-                    signal: controller.signal,
-                } as any);
-
-                const latencyMs = Math.round(performance.now() - startTime);
-                const raw = (response as any).choices?.[0]?.message?.content ?? "";
-                const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
-                const outputTokens = (response as any).usage?.completion_tokens ?? 0;
-                const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
-                const usedModel = (response as any).model ?? orPrimary;
-
-                if (usedModel !== models[0]) {
-                    log.info("Task fell back to alternate model", { task, from: models[0], to: usedModel });
-                }
-
-                logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
-
-                return { raw, tokensUsed, model: usedModel, latencyMs };
+                result = await handleCloudFallback(consecutiveOpenRouterModels, messages, options, controller.signal, startTime, task);
+                
+                // Skip consecutive OpenRouter models that were handled server-side
+                i += consecutiveOpenRouterModels.length - 1;
             }
+
+            if (result.usedModel !== models[0]) {
+                log.info("Task fell back to alternate model", { task, from: models[0], to: result.usedModel });
+            }
+
+            logLLMCall({ requestId: options?.requestId, task, model: result.usedModel, tokensUsed: result.tokensUsed, inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs, userId: options?.userId }, log);
+
+            return { raw: result.raw, tokensUsed: result.tokensUsed, model: result.usedModel, latencyMs: result.latencyMs };
         } catch (error) {
             log.info(`Model segment starting with ${currentModel} failed. Trying next segment.`, { error });
             lastError = error;
@@ -427,15 +451,15 @@ export async function* callModelStream(
                     resetInactivity();
 
                     if (chunk.usage) {
-                        inputTokens = chunk.usage.prompt_tokens ?? (chunk.usage as any).promptTokens ?? 0;
-                        outputTokens = chunk.usage.completion_tokens ?? (chunk.usage as any).completionTokens ?? 0;
-                        tokensUsed = chunk.usage.total_tokens ?? (chunk.usage as any).totalTokens ?? (inputTokens + outputTokens);
+                        inputTokens = chunk.usage.prompt_tokens ?? chunk.usage.promptTokens ?? 0;
+                        outputTokens = chunk.usage.completion_tokens ?? chunk.usage.completionTokens ?? 0;
+                        tokensUsed = chunk.usage.total_tokens ?? chunk.usage.totalTokens ?? (inputTokens + outputTokens);
                     }
 
                     const delta = chunk.choices?.[0]?.delta;
                     if (!delta) continue;
 
-                    const reasoning = (delta as any).reasoning_content || (delta as any).reasoning;
+                    const reasoning = delta.reasoning_content || delta.reasoning;
                     if (reasoning) {
                         yield { type: "reasoning", content: reasoning };
                     }
@@ -528,9 +552,14 @@ export async function* callModelStream(
 
             if (firstChunkReceived) {
                 // Mid-stream failure: cannot fallback
-                const reason = error instanceof DOMException && error.name === "AbortError"
-                    ? `Stream stalled (no data for ${INACTIVITY_MS}ms)`
-                    : (error instanceof Error ? error.message : String(error));
+                let reason: string;
+                if (error instanceof DOMException && error.name === "AbortError") {
+                    reason = `Stream stalled (no data for ${INACTIVITY_MS}ms)`;
+                } else if (error instanceof Error) {
+                    reason = error.message;
+                } else {
+                    reason = String(error);
+                }
                 yield { type: "error", error: reason, code: "TIMEOUT" };
                 logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs, userId: options?.userId }, log);
                 return;

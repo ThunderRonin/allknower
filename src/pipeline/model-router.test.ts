@@ -415,8 +415,9 @@ describe("callModelStream", () => {
             let didThrow = false;
             try {
                 await callWithFallback("brain-dump", [{ role: "user", content: "hello" }]);
-            } catch (e) {
+            } catch (error) {
                 didThrow = true;
+                expect(error).toBeDefined();
             }
             expect(didThrow).toBe(true);
         } finally {

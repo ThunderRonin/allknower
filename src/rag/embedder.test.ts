@@ -4,12 +4,12 @@
 import { describe, expect, it, mock, beforeAll } from "bun:test";
 import { env } from "../env.ts";
 
-export let constructorCalls: any[] = [];
+export const constructorCalls: any[] = [];
 export const mockEmbeddingsCreate = mock((params: any) => {
     return Promise.resolve({
         data: params.input.map((text: string, index: number) => ({
             index,
-            embedding: Array(4096).fill(0.1)
+            embedding: new Array(4096).fill(0.1)
         }))
     });
 });
