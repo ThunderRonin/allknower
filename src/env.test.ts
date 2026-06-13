@@ -164,6 +164,15 @@ describe("envSchema", () => {
         expect(result.success).toBe(true);
         if (result.success) expect(result.data.RAG_CHUNK_DEDUP_SIMILARITY_THRESHOLD).toBe(0.85);
     });
+
+    it("defaults LOCAL_PROVIDER_BASE_URL and LOCAL_PROVIDER_API_KEY correctly", () => {
+        const result = envSchema.safeParse({ ...VALID_MINIMAL });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.LOCAL_PROVIDER_BASE_URL).toBe("http://localhost:11434/v1");
+            expect(result.data.LOCAL_PROVIDER_API_KEY).toBe("ollama");
+        }
+    });
 });
 
 describe("parseEnv", () => {

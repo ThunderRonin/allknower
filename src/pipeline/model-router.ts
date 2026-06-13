@@ -1,4 +1,5 @@
 import { OpenRouter } from "@openrouter/sdk";
+import { OpenAI } from "openai";
 import { env } from "../env.ts";
 import { rootLogger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
@@ -33,11 +34,30 @@ interface ModelChain {
     fallback3: string;
 }
 
-// ── OpenRouter SDK client (singleton) ─────────────────────────────────────────
+// ── SDK Clients ──────────────────────────────────────────────────────────────
 
 const openrouter = new OpenRouter({
     apiKey: env.OPENROUTER_API_KEY,
 });
+
+const localClient = new OpenAI({
+    baseURL: env.LOCAL_PROVIDER_BASE_URL || "http://localhost:11434/v1",
+    apiKey: env.LOCAL_PROVIDER_API_KEY || "ollama",
+});
+
+export function isLocalModel(model: string): boolean {
+    return model.startsWith("ollama/") || model.startsWith("local/");
+}
+
+export function cleanLocalModelName(model: string): string {
+    if (model.startsWith("ollama/")) {
+        return model.slice("ollama/".length);
+    }
+    if (model.startsWith("local/")) {
+        return model.slice("local/".length);
+    }
+    return model;
+}
 
 // ── Model chain resolution ────────────────────────────────────────────────────
 
@@ -130,6 +150,104 @@ export interface LLMResult {
  * - Fire-and-forget LLM call logging to Prisma (never blocks the pipeline)
  * - response-healing plugin for auto-fixing malformed JSON
  */
+function mapLocalResponseFormat(responseFormat?: any): any {
+    if (!responseFormat) return undefined;
+    if (responseFormat.type === "json_object") {
+        return { type: "json_object" };
+    }
+    if (responseFormat.type === "json_schema") {
+        return {
+            type: "json_schema",
+            json_schema: {
+                name: responseFormat.jsonSchema.name,
+                schema: responseFormat.jsonSchema.schema,
+                strict: responseFormat.jsonSchema.strict,
+            },
+        };
+    }
+    return undefined;
+}
+
+async function handleLocalFallback(
+    currentModel: string,
+    messages: any[],
+    options: any,
+    signal: AbortSignal,
+    startTime: number
+) {
+    const localResponseFormat = mapLocalResponseFormat(options?.responseFormat);
+
+    const response = await localClient.chat.completions.create({
+        model: cleanLocalModelName(currentModel),
+        messages: messages as any,
+        temperature: options?.temperature ?? 0.3,
+        max_tokens: options?.maxTokens ?? 30000,
+        ...(localResponseFormat && { response_format: localResponseFormat }),
+    }, {
+        signal,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices?.[0]?.message?.content ?? "";
+    const inputTokens = response.usage?.prompt_tokens ?? 0;
+    const outputTokens = response.usage?.completion_tokens ?? 0;
+    const tokensUsed = inputTokens + outputTokens || response.usage?.total_tokens || 0;
+
+    return { raw, tokensUsed, inputTokens, outputTokens, latencyMs, usedModel: currentModel };
+}
+
+async function handleCloudFallback(
+    consecutiveOpenRouterModels: string[],
+    messages: any[],
+    options: any,
+    signal: AbortSignal,
+    startTime: number,
+    task: TaskType
+) {
+    const [orPrimary, ...orFallbacks] = consecutiveOpenRouterModels;
+
+    const response = await openrouter.chat.send({
+        httpReferer: "https://allknower.local",
+        appTitle: "AllKnower",
+        chatGenerationParams: {
+            model: orPrimary,
+            ...(orFallbacks.length > 0 && { models: orFallbacks }),
+            messages: messages as any,
+            temperature: options?.temperature ?? 0.3,
+            maxTokens: options?.maxTokens ?? 30000,
+            ...(options?.responseFormat && {
+                responseFormat: options.responseFormat as any,
+            }),
+            ...(options?.requestId && {
+                trace: {
+                    traceId: options.requestId,
+                    spanName: task,
+                } as any,
+            }),
+            ...(options?.reasoning && { reasoning: options.reasoning }),
+            plugins: [
+                { id: "response-healing" as const },
+            ],
+            provider: {
+                allowFallbacks: true,
+                ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
+            } as any,
+        },
+    }, {
+        signal,
+    } as any);
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = (response as any).choices?.[0]?.message?.content ?? "";
+    const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
+    const outputTokens = (response as any).usage?.completion_tokens ?? 0;
+    const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
+    const usedModel = (response as any).model ?? orPrimary;
+
+    return { raw, tokensUsed, inputTokens, outputTokens, latencyMs, usedModel };
+}
+
 export async function callWithFallback(
     task: TaskType,
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
@@ -160,70 +278,63 @@ export async function callWithFallback(
         );
     }
 
-    const [primaryModel, ...fallbackModels] = models;
+    let lastError: any = null;
 
-    // Non-streaming timeout (streaming routes use callModelStream with inactivity-based timeouts)
-    const TIMEOUT_MS = options?.timeoutMs ?? env.LLM_TIMEOUT_MS;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    for (let i = 0; i < models.length; i++) {
+        const currentModel = models[i];
+        const TIMEOUT_MS = options?.timeoutMs ?? env.LLM_TIMEOUT_MS;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        const startTime = performance.now();
 
-    const startTime = performance.now();
+        try {
+            let result: { raw: string; tokensUsed: number; inputTokens: number; outputTokens: number; latencyMs: number; usedModel: string };
 
-    try {
-        const response = await openrouter.chat.send({
-            httpReferer: "https://allknower.local",
-            appTitle: "AllKnower",
-            chatGenerationParams: {
-                model: primaryModel,
-                ...(fallbackModels.length > 0 && { models: fallbackModels }),
-                messages: messages as any,
-                temperature: options?.temperature ?? 0.3,
-                maxTokens: options?.maxTokens ?? 30000,
-                ...(options?.responseFormat && {
-                    responseFormat: options.responseFormat as any,
-                }),
-                ...(options?.requestId && {
-                    trace: {
-                        traceId: options.requestId,
-                        spanName: task,
-                    } as any,
-                }),
-                ...(options?.reasoning && { reasoning: options.reasoning }),
-                plugins: [
-                    { id: "response-healing" as const },
-                ],
-                provider: {
-                    allowFallbacks: true,
-                    ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
-                    ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
-                } as any,
-            },
-        }, {
-            signal: controller.signal,
-        } as any);
+            if (isLocalModel(currentModel)) {
+                result = await handleLocalFallback(currentModel, messages, options, controller.signal, startTime);
+            } else {
+                // Cloud (OpenRouter) model - try it and consecutive OpenRouter fallbacks
+                const openRouterModels = models.slice(i);
+                const nextLocalIndex = openRouterModels.findIndex(isLocalModel);
+                const consecutiveOpenRouterModels = nextLocalIndex === -1 
+                    ? openRouterModels 
+                    : openRouterModels.slice(0, nextLocalIndex);
+                
+                result = await handleCloudFallback(consecutiveOpenRouterModels, messages, options, controller.signal, startTime, task);
+                
+                // Skip consecutive OpenRouter models that were handled server-side
+                i += consecutiveOpenRouterModels.length - 1;
+            }
 
-        const latencyMs = Math.round(performance.now() - startTime);
-        const raw = (response as any).choices?.[0]?.message?.content ?? "";
-        const inputTokens = (response as any).usage?.prompt_tokens ?? 0;
-        const outputTokens = (response as any).usage?.completion_tokens ?? 0;
-        const tokensUsed = inputTokens + outputTokens || (response as any).usage?.total_tokens || 0;
-        const usedModel = (response as any).model ?? primaryModel;
+            if (result.usedModel !== models[0]) {
+                log.info("Task fell back to alternate model", { task, from: models[0], to: result.usedModel });
+            }
 
-        if (usedModel !== primaryModel) {
-            log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
+            logLLMCall({ requestId: options?.requestId, task, model: result.usedModel, tokensUsed: result.tokensUsed, inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs, userId: options?.userId }, log);
+
+            return { raw: result.raw, tokensUsed: result.tokensUsed, model: result.usedModel, latencyMs: result.latencyMs };
+        } catch (error) {
+            log.info(`Model segment starting with ${currentModel} failed. Trying next segment.`, { error });
+            lastError = error;
+            
+            // Advance index to the end of the consecutive OpenRouter segment if OpenRouter segment failed
+            if (!isLocalModel(currentModel)) {
+                const openRouterModels = models.slice(i);
+                const nextLocalIndex = openRouterModels.findIndex(isLocalModel);
+                const consecutiveOpenRouterModels = nextLocalIndex === -1 
+                    ? openRouterModels 
+                    : openRouterModels.slice(0, nextLocalIndex);
+                i += consecutiveOpenRouterModels.length - 1;
+            }
+        } finally {
+            clearTimeout(timeoutId);
         }
-
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
-
-        return { raw, tokensUsed, model: usedModel, latencyMs };
-    } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-            throw new Error(`[model-router] "${task}" timed out after ${TIMEOUT_MS}ms`);
-        }
-        throw error;
-    } finally {
-        clearTimeout(timeoutId);
     }
+
+    if (lastError instanceof DOMException && lastError.name === "AbortError") {
+        throw new Error(`[model-router] "${task}" timed out after the specified duration`);
+    }
+    throw lastError ?? new Error(`All models configured for task "${task}" failed`);
 }
 
 // ── Streaming LLM call with inactivity-based timeouts ────────────────────────
@@ -266,117 +377,219 @@ export async function* callModelStream(
         return;
     }
 
-    const [primaryModel, ...fallbackModels] = models;
-    const startTime = performance.now();
+    let lastError: any = null;
 
-    // Timeout controllers
-    const controller = new AbortController();
-    const FIRST_CHUNK_MS = env.LLM_FIRST_CHUNK_TIMEOUT_MS;
-    const INACTIVITY_MS = env.LLM_INACTIVITY_TIMEOUT_MS;
-    const MAX_DURATION_MS = env.LLM_MAX_DURATION_MS;
+    for (let i = 0; i < models.length; i++) {
+        const currentModel = models[i];
+        
+        // Timeout controllers
+        const controller = new AbortController();
+        const FIRST_CHUNK_MS = env.LLM_FIRST_CHUNK_TIMEOUT_MS;
+        const INACTIVITY_MS = env.LLM_INACTIVITY_TIMEOUT_MS;
+        const MAX_DURATION_MS = env.LLM_MAX_DURATION_MS;
 
-    let firstChunkReceived = false;
-    let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
-    let maxDurationTimer: ReturnType<typeof setTimeout>;
+        let firstChunkReceived = false;
+        let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+        let maxDurationTimer: ReturnType<typeof setTimeout>;
 
-    let firstChunkTimer: ReturnType<typeof setTimeout> = setTimeout(() => {
-        if (!firstChunkReceived) {
-            controller.abort();
-        }
-    }, FIRST_CHUNK_MS);
-
-    maxDurationTimer = setTimeout(() => controller.abort(), MAX_DURATION_MS);
-
-    const resetInactivity = () => {
-        clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(() => controller.abort(), INACTIVITY_MS);
-    };
-
-    let accumulatedText = "";
-    let tokensUsed = 0;
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let usedModel = primaryModel;
-
-    try {
-        const result = await openrouter.chat.send({
-            httpReferer: "https://allknower.local",
-            appTitle: "AllKnower",
-            chatGenerationParams: {
-                model: primaryModel,
-                ...(fallbackModels.length > 0 && { models: fallbackModels }),
-                messages: messages as any,
-                stream: true,
-                streamOptions: { includeUsage: true },
-                temperature: options?.temperature ?? 0.3,
-                maxTokens: options?.maxTokens ?? 30000,
-                ...(options?.responseFormat && {
-                    responseFormat: options.responseFormat as any,
-                }),
-                ...(options?.reasoning && { reasoning: options.reasoning }),
-                provider: {
-                    allowFallbacks: true,
-                    ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
-                    ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
-                } as any,
-            },
-        }, {
-            signal: controller.signal,
-        } as any);
-
-        for await (const chunk of result as AsyncIterable<any>) {
+        let firstChunkTimer: ReturnType<typeof setTimeout> = setTimeout(() => {
             if (!firstChunkReceived) {
-                firstChunkReceived = true;
-                clearTimeout(firstChunkTimer);
+                controller.abort();
             }
-            resetInactivity();
+        }, FIRST_CHUNK_MS);
 
-            if (chunk.model) usedModel = chunk.model;
+        maxDurationTimer = setTimeout(() => controller.abort(), MAX_DURATION_MS);
 
-            if (chunk.usage) {
-                inputTokens = chunk.usage.promptTokens ?? 0;
-                outputTokens = chunk.usage.completionTokens ?? 0;
-                tokensUsed = chunk.usage.totalTokens ?? (inputTokens + outputTokens);
+        const resetInactivity = () => {
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(() => controller.abort(), INACTIVITY_MS);
+        };
+
+        let accumulatedText = "";
+        let tokensUsed = 0;
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let usedModel = currentModel;
+        const startTime = performance.now();
+
+        try {
+            if (isLocalModel(currentModel)) {
+                const responseFormat = options?.responseFormat;
+                let localResponseFormat: any = undefined;
+                if (responseFormat) {
+                    if (responseFormat.type === "json_object") {
+                        localResponseFormat = { type: "json_object" };
+                    } else if (responseFormat.type === "json_schema") {
+                        localResponseFormat = {
+                            type: "json_schema",
+                            json_schema: {
+                                name: responseFormat.jsonSchema.name,
+                                schema: responseFormat.jsonSchema.schema,
+                                strict: responseFormat.jsonSchema.strict,
+                            },
+                        };
+                    }
+                }
+
+                const result = await localClient.chat.completions.create({
+                    model: cleanLocalModelName(currentModel),
+                    messages: messages as any,
+                    stream: true,
+                    stream_options: { include_usage: true },
+                    temperature: options?.temperature ?? 0.3,
+                    max_tokens: options?.maxTokens ?? 30000,
+                    ...(localResponseFormat && { response_format: localResponseFormat }),
+                }, {
+                    signal: controller.signal,
+                });
+
+                for await (const chunk of result as any) {
+                    if (!firstChunkReceived) {
+                        firstChunkReceived = true;
+                        clearTimeout(firstChunkTimer);
+                    }
+                    resetInactivity();
+
+                    if (chunk.usage) {
+                        inputTokens = chunk.usage.prompt_tokens ?? chunk.usage.promptTokens ?? 0;
+                        outputTokens = chunk.usage.completion_tokens ?? chunk.usage.completionTokens ?? 0;
+                        tokensUsed = chunk.usage.total_tokens ?? chunk.usage.totalTokens ?? (inputTokens + outputTokens);
+                    }
+
+                    const delta = chunk.choices?.[0]?.delta;
+                    if (!delta) continue;
+
+                    const reasoning = delta.reasoning_content || delta.reasoning;
+                    if (reasoning) {
+                        yield { type: "reasoning", content: reasoning };
+                    }
+
+                    if (delta.content) {
+                        accumulatedText += delta.content;
+                        yield { type: "token", content: delta.content };
+                    }
+                }
+            } else {
+                // Cloud (OpenRouter) model - try it and consecutive OpenRouter fallbacks
+                const openRouterModels = models.slice(i);
+                const nextLocalIndex = openRouterModels.findIndex(isLocalModel);
+                const consecutiveOpenRouterModels = nextLocalIndex === -1 
+                    ? openRouterModels 
+                    : openRouterModels.slice(0, nextLocalIndex);
+                
+                const [orPrimary, ...orFallbacks] = consecutiveOpenRouterModels;
+                usedModel = orPrimary;
+
+                const result = await openrouter.chat.send({
+                    httpReferer: "https://allknower.local",
+                    appTitle: "AllKnower",
+                    chatGenerationParams: {
+                        model: orPrimary,
+                        ...(orFallbacks.length > 0 && { models: orFallbacks }),
+                        messages: messages as any,
+                        stream: true,
+                        streamOptions: { includeUsage: true },
+                        temperature: options?.temperature ?? 0.3,
+                        maxTokens: options?.maxTokens ?? 30000,
+                        ...(options?.responseFormat && {
+                            responseFormat: options.responseFormat as any,
+                        }),
+                        ...(options?.reasoning && { reasoning: options.reasoning }),
+                        provider: {
+                            allowFallbacks: true,
+                            ...(env.OPENROUTER_SORT && { sort: env.OPENROUTER_SORT }),
+                            ...(env.OPENROUTER_ZDR === "true" && { data_collection: "deny" as const }),
+                        } as any,
+                    },
+                }, {
+                    signal: controller.signal,
+                } as any);
+
+                for await (const chunk of result as AsyncIterable<any>) {
+                    if (!firstChunkReceived) {
+                        firstChunkReceived = true;
+                        clearTimeout(firstChunkTimer);
+                    }
+                    resetInactivity();
+
+                    if (chunk.model) usedModel = chunk.model;
+
+                    if (chunk.usage) {
+                        inputTokens = chunk.usage.promptTokens ?? 0;
+                        outputTokens = chunk.usage.completionTokens ?? 0;
+                        tokensUsed = chunk.usage.totalTokens ?? (inputTokens + outputTokens);
+                    }
+
+                    const delta = chunk.choices?.[0]?.delta;
+                    if (!delta) continue;
+
+                    if (delta.reasoning) {
+                        yield { type: "reasoning", content: delta.reasoning };
+                    }
+
+                    if (delta.content) {
+                        accumulatedText += delta.content;
+                        yield { type: "token", content: delta.content };
+                    }
+                }
+
+                // Skip consecutive OpenRouter models that were handled server-side
+                i += consecutiveOpenRouterModels.length - 1;
             }
 
-            const delta = chunk.choices?.[0]?.delta;
-            if (!delta) continue;
+            const latencyMs = Math.round(performance.now() - startTime);
 
-            if (delta.reasoning) {
-                yield { type: "reasoning", content: delta.reasoning };
+            if (usedModel !== currentModel) {
+                log.info("Task fell back to alternate model", { task, from: currentModel, to: usedModel });
             }
 
-            if (delta.content) {
-                accumulatedText += delta.content;
-                yield { type: "token", content: delta.content };
+            logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
+
+            yield { type: "done", raw: accumulatedText, tokensUsed, model: usedModel, latencyMs };
+            return; // Success, terminate generator
+        } catch (error) {
+            const latencyMs = Math.round(performance.now() - startTime);
+
+            if (firstChunkReceived) {
+                // Mid-stream failure: cannot fallback
+                let reason: string;
+                if (error instanceof DOMException && error.name === "AbortError") {
+                    reason = `Stream stalled (no data for ${INACTIVITY_MS}ms)`;
+                } else if (error instanceof Error) {
+                    reason = error.message;
+                } else {
+                    reason = String(error);
+                }
+                yield { type: "error", error: reason, code: "TIMEOUT" };
+                logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs, userId: options?.userId }, log);
+                return;
             }
+
+            log.info(`Model segment starting with ${currentModel} failed before first chunk. Trying next segment.`, { error });
+            lastError = error;
+
+            if (!isLocalModel(currentModel)) {
+                const openRouterModels = models.slice(i);
+                const nextLocalIndex = openRouterModels.findIndex(isLocalModel);
+                const consecutiveOpenRouterModels = nextLocalIndex === -1 
+                    ? openRouterModels 
+                    : openRouterModels.slice(0, nextLocalIndex);
+                i += consecutiveOpenRouterModels.length - 1;
+            }
+        } finally {
+            clearTimeout(firstChunkTimer);
+            clearTimeout(inactivityTimer);
+            clearTimeout(maxDurationTimer);
         }
-
-        const latencyMs = Math.round(performance.now() - startTime);
-
-        if (usedModel !== primaryModel) {
-            log.info("Task fell back to alternate model", { task, from: primaryModel, to: usedModel });
-        }
-
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed, inputTokens, outputTokens, latencyMs, userId: options?.userId }, log);
-
-        yield { type: "done", raw: accumulatedText, tokensUsed, model: usedModel, latencyMs };
-    } catch (error) {
-        const latencyMs = Math.round(performance.now() - startTime);
-        if (error instanceof DOMException && error.name === "AbortError") {
-            const reason = !firstChunkReceived
-                ? `No response from model within ${FIRST_CHUNK_MS}ms`
-                : `Stream stalled (no data for ${INACTIVITY_MS}ms)`;
-            yield { type: "error", error: reason, code: "TIMEOUT" };
-        } else {
-            yield { type: "error", error: error instanceof Error ? error.message : String(error) };
-        }
-        logLLMCall({ requestId: options?.requestId, task, model: usedModel, tokensUsed: 0, latencyMs, userId: options?.userId }, log);
-    } finally {
-        clearTimeout(firstChunkTimer);
-        clearTimeout(inactivityTimer);
-        clearTimeout(maxDurationTimer);
     }
+
+    const finalLatencyMs = 0;
+    if (lastError instanceof DOMException && lastError.name === "AbortError") {
+        yield { type: "error", error: `No response from any model within first-chunk timeout`, code: "TIMEOUT" };
+    } else {
+        yield { type: "error", error: lastError instanceof Error ? lastError.message : String(lastError) };
+    }
+    logLLMCall({ requestId: options?.requestId, task, model: "failed", tokensUsed: 0, latencyMs: finalLatencyMs, userId: options?.userId }, log);
 }
 
 // ── Fire-and-forget call logger ───────────────────────────────────────────────
