@@ -29,6 +29,10 @@ export const envSchema = z.object({
     OPENROUTER_API_KEY: z.string().min(1),
     OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),
 
+    // Local Provider (Ollama/LM Studio)
+    LOCAL_PROVIDER_BASE_URL: z.string().default("http://localhost:11434/v1"),
+    LOCAL_PROVIDER_API_KEY: z.string().default("ollama"),
+
     // OpenRouter auto-routing toggle — overrides all per-task models with "openrouter/auto"
     USE_OPENROUTER_AUTO: z.string().default("false"),
 

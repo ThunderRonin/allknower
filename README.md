@@ -92,6 +92,8 @@ See [`.env.example`](.env.example) for the full list. Required vars:
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
+| `LOCAL_PROVIDER_BASE_URL` | Base URL for local model provider, e.g. Ollama (`http://localhost:11434/v1`) |
+| `LOCAL_PROVIDER_API_KEY` | API key for local model provider (defaults to `"ollama"`) |
 | `BETTER_AUTH_SECRET` | Random secret ≥ 16 chars for session signing |
 | `INTEGRATION_CREDENTIALS_KEY` | 32-byte secret for encrypting user-scoped Core tokens at rest |
 | `PORTAL_INTERNAL_SECRET` | Shared secret for Portal to resolve credentials |

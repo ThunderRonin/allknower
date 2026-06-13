@@ -1,4 +1,74 @@
-import { mock } from "bun:test";
+import { mock, beforeAll } from "bun:test";
+
+async function* mockStream(chunks: any[]) {
+    for (const chunk of chunks) {
+        yield chunk;
+    }
+}
+
+export const mockOpenRouterSend = mock((params: any) => {
+    if (params?.chatGenerationParams?.stream) {
+        return Promise.resolve(mockStream([
+            { choices: [{ delta: { content: "cloud-" } }] },
+            { choices: [{ delta: { content: "stream" } }], usage: { promptTokens: 10, completionTokens: 20 } }
+        ]));
+    }
+    return Promise.resolve({
+        id: "chatcmpl-123",
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: "openrouter-used-model",
+        choices: [{
+            index: 0,
+            message: { role: "assistant", content: "mock-openrouter-response" },
+            finish_reason: "stop"
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
+    });
+});
+
+export const mockLocalCreate = mock((params: any) => {
+    if (params?.stream) {
+        return Promise.resolve(mockStream([
+            { choices: [{ delta: { content: "local-" } }] },
+            { choices: [{ delta: { content: "stream" } }], usage: { prompt_tokens: 5, completion_tokens: 15 } }
+        ]));
+    }
+    return Promise.resolve({
+        id: "chatcmpl-123",
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: "local-used-model",
+        choices: [{
+            index: 0,
+            message: { role: "assistant", content: "mock-local-response" },
+            finish_reason: "stop"
+        }],
+        usage: { prompt_tokens: 5, completion_tokens: 15, total_tokens: 20 }
+    });
+});
+
+mock.module("@openrouter/sdk", () => {
+    return {
+        OpenRouter: class {
+            chat = {
+                send: mockOpenRouterSend
+            };
+        }
+    };
+});
+
+mock.module("openai", () => {
+    return {
+        OpenAI: class {
+            chat = {
+                completions: {
+                    create: mockLocalCreate
+                }
+            };
+        }
+    };
+});
 
 // Must mock env before model-router.ts imports it at module load
 mock.module("../env.ts", () => ({
@@ -34,16 +104,31 @@ mock.module("../env.ts", () => ({
         COMPACT_FALLBACK_2: "",
         COMPACT_FALLBACK_3: "",
         OPENROUTER_API_KEY: "test-key",
+        LOCAL_PROVIDER_BASE_URL: "http://localhost:11434/v1",
+        LOCAL_PROVIDER_API_KEY: "ollama",
         LLM_TIMEOUT_MS: 120000,
         OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
         DATABASE_URL: "postgresql://test:test@localhost:5432/test",
         NODE_ENV: "test",
+        LLM_FIRST_CHUNK_TIMEOUT_MS: 30000,
+        LLM_INACTIVITY_TIMEOUT_MS: 15000,
+        LLM_MAX_DURATION_MS: 300000,
     },
 }));
 
 import { describe, expect, it } from "bun:test";
-import { getModelChain } from "./model-router.ts";
 import type { TaskType } from "./model-router.ts";
+
+let getModelChain: any;
+let callWithFallback: any;
+let callModelStream: any;
+
+beforeAll(async () => {
+    const mod = await import("./model-router.ts");
+    getModelChain = mod.getModelChain;
+    callWithFallback = mod.callWithFallback;
+    callModelStream = mod.callModelStream;
+});
 
 describe("getModelChain", () => {
     const validTasks: TaskType[] = [
@@ -107,9 +192,140 @@ describe("getModelChain", () => {
         // Our mock has COMPACT_FALLBACK_2 = "" → only 2 results
         // Test the filtering logic by verifying no empty strings
         const chain = getModelChain("compact");
-        expect(chain.every((m) => m.length > 0)).toBe(true);
+        expect(chain.every((m: string) => m.length > 0)).toBe(true);
     });
 
     // Note: USE_OPENROUTER_AUTO="true" path is verified in a separate describe below
     // because it requires a different env mock value
+});
+
+describe("callWithFallback", () => {
+    it("routes local/ prefixed models to localClient and strips the prefix", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        const result = await callWithFallback("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "local/llama3"
+        });
+
+        expect(result.raw).toBe("mock-local-response");
+        expect(mockLocalCreate).toHaveBeenCalled();
+        expect(mockOpenRouterSend).not.toHaveBeenCalled();
+
+        // Check stripped prefix in call arguments
+        const calledArgs = mockLocalCreate.mock.calls[0][0];
+        expect(calledArgs.model).toBe("llama3");
+
+        // Verify OpenRouter-specific fields are stripped
+        expect(calledArgs.models).toBeUndefined();
+        expect(calledArgs.plugins).toBeUndefined();
+        expect(calledArgs.provider).toBeUndefined();
+        expect(calledArgs.trace).toBeUndefined();
+    });
+
+    it("routes ollama/ prefixed models to localClient and strips the prefix", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        const result = await callWithFallback("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "ollama/deepseek-r1"
+        });
+
+        expect(result.raw).toBe("mock-local-response");
+        expect(mockLocalCreate).toHaveBeenCalled();
+        expect(mockOpenRouterSend).not.toHaveBeenCalled();
+
+        // Check stripped prefix in call arguments
+        const calledArgs = mockLocalCreate.mock.calls[0][0];
+        expect(calledArgs.model).toBe("deepseek-r1");
+    });
+
+    it("routes unprefixed models to OpenRouter SDK client", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        const result = await callWithFallback("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "openai/gpt-4o"
+        });
+
+        expect(result.raw).toBe("mock-openrouter-response");
+        expect(mockOpenRouterSend).toHaveBeenCalled();
+        expect(mockLocalCreate).not.toHaveBeenCalled();
+
+        const calledArgs = mockOpenRouterSend.mock.calls[0][0];
+        expect(calledArgs.chatGenerationParams.model).toBe("openai/gpt-4o");
+    });
+
+    it("falls back to cloud model if local model fails", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        // Mock localClient failing once
+        (mockLocalCreate as any).mockImplementationOnce(() => Promise.reject(new Error("Local client down")));
+
+        const result = await callWithFallback("compact", [{ role: "user", content: "hello" }], {
+            modelOverride: "local/llama3" // will fall back to chain's next model: COMPACT_FALLBACK_1 = "openai/gpt-4.1-nano"
+        });
+
+        expect(result.raw).toBe("mock-openrouter-response");
+        expect(mockLocalCreate).toHaveBeenCalledTimes(1);
+        expect(mockOpenRouterSend).toHaveBeenCalledTimes(1);
+
+        const openRouterArgs = mockOpenRouterSend.mock.calls[0][0];
+        expect(openRouterArgs.chatGenerationParams.model).toBe("anthropic/claude-haiku-4-5-20251001");
+    });
+});
+
+describe("callModelStream", () => {
+    it("routes local/ prefixed models to localClient stream", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        const stream = callModelStream("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "local/llama3"
+        });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(chunk);
+        }
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0]).toEqual({ type: "token", content: "local-" });
+        expect(chunks[1]).toEqual({ type: "token", content: "stream" });
+        expect(chunks[2].type).toBe("done");
+        expect(chunks[2].raw).toBe("local-stream");
+
+        expect(mockLocalCreate).toHaveBeenCalled();
+        expect(mockOpenRouterSend).not.toHaveBeenCalled();
+
+        const calledArgs = mockLocalCreate.mock.calls[0][0];
+        expect(calledArgs.model).toBe("llama3");
+    });
+
+    it("routes unprefixed models to OpenRouter stream", async () => {
+        mockLocalCreate.mockClear();
+        mockOpenRouterSend.mockClear();
+
+        const stream = callModelStream("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "openai/gpt-4o"
+        });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(chunk);
+        }
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0]).toEqual({ type: "token", content: "cloud-" });
+        expect(chunks[1]).toEqual({ type: "token", content: "stream" });
+        expect(chunks[2].type).toBe("done");
+        expect(chunks[2].raw).toBe("cloud-stream");
+
+        expect(mockOpenRouterSend).toHaveBeenCalled();
+        expect(mockLocalCreate).not.toHaveBeenCalled();
+
+        const calledArgs = mockOpenRouterSend.mock.calls[0][0];
+        expect(calledArgs.chatGenerationParams.model).toBe("openai/gpt-4o");
+    });
 });

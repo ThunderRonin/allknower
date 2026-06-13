@@ -1,17 +1,52 @@
 /**
  * Embedder unit tests.
- *
- * The embedder's core logic (embedding generation) requires an OpenRouter API call.
- * These tests cover the deterministic parts:
- *   - EMBEDDING_DIMENSIONS export
- *   - embedBatch([]) short-circuit (no network call)
- *   - Module contract (exports correct function signatures)
- *
- * Integration-level embedding tests are in lancedb.integration.test.ts where
- * the embedder is mocked. Network-calling tests require OPENROUTER_API_KEY set.
  */
-import { describe, expect, it } from "bun:test";
-import { embed, embedBatch, EMBEDDING_DIMENSIONS } from "./embedder.ts";
+import { describe, expect, it, mock, beforeAll } from "bun:test";
+
+export let constructorCalls: any[] = [];
+export const mockEmbeddingsCreate = mock((params: any) => {
+    return Promise.resolve({
+        data: params.input.map((text: string, index: number) => ({
+            index,
+            embedding: Array(4096).fill(0.1)
+        }))
+    });
+});
+
+mock.module("openai", () => {
+    return {
+        default: class {
+            constructor(options: any) {
+                constructorCalls.push(options);
+            }
+            embeddings = {
+                create: mockEmbeddingsCreate
+            };
+        }
+    };
+});
+
+mock.module("../env.ts", () => ({
+    env: {
+        EMBEDDING_CLOUD: "ollama/nomic-embed-text",
+        EMBEDDING_DIMENSIONS: 4096,
+        LOCAL_PROVIDER_BASE_URL: "http://localhost:11434/v1",
+        LOCAL_PROVIDER_API_KEY: "ollama",
+        OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+        OPENROUTER_API_KEY: "test-cloud-key",
+    }
+}));
+
+let embed: any;
+let embedBatch: any;
+let EMBEDDING_DIMENSIONS: any;
+
+beforeAll(async () => {
+    const mod = await import("./embedder.ts");
+    embed = mod.embed;
+    embedBatch = mod.embedBatch;
+    EMBEDDING_DIMENSIONS = mod.EMBEDDING_DIMENSIONS;
+});
 
 describe("EMBEDDING_DIMENSIONS", () => {
     it("is a positive integer", () => {
@@ -20,16 +55,12 @@ describe("EMBEDDING_DIMENSIONS", () => {
     });
 
     it("equals env.EMBEDDING_DIMENSIONS (default 4096)", () => {
-        // We don't mock env here — just verify it's a sensible value
-        // The test value may be 4096 (real default) if env mock from another test leaked,
-        // or it might differ. At minimum it must be a positive integer (already asserted above).
-        expect(EMBEDDING_DIMENSIONS).toBeGreaterThan(0);
+        expect(EMBEDDING_DIMENSIONS).toBe(4096);
     });
 });
 
 describe("embedBatch short-circuit", () => {
     it("returns [] immediately for empty input (no network call)", async () => {
-        // This is the only code path that doesn't make a network call
         const result = await embedBatch([]);
         expect(result).toEqual([]);
     });
@@ -48,5 +79,32 @@ describe("module shape", () => {
 
     it("exports EMBEDDING_DIMENSIONS as a number", () => {
         expect(typeof EMBEDDING_DIMENSIONS).toBe("number");
+    });
+});
+
+describe("local embeddings routing", () => {
+    it("instantiates OpenAI clients correctly", () => {
+        expect(constructorCalls).toHaveLength(2);
+        
+        // OpenRouter client
+        expect(constructorCalls[0].baseURL).toBe("https://openrouter.ai/api/v1");
+        expect(constructorCalls[0].apiKey).toBe("test-cloud-key");
+
+        // Local client
+        expect(constructorCalls[1].baseURL).toBe("http://localhost:11434/v1");
+        expect(constructorCalls[1].apiKey).toBe("ollama");
+    });
+
+    it("routes local/ollama prefixed models to localClient and strips the prefix", async () => {
+        mockEmbeddingsCreate.mockClear();
+
+        const result = await embedBatch(["hello world"]);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0]).toHaveLength(4096);
+        expect(mockEmbeddingsCreate).toHaveBeenCalled();
+
+        const calledArgs = mockEmbeddingsCreate.mock.calls[0][0];
+        expect(calledArgs.model).toBe("nomic-embed-text");
     });
 });

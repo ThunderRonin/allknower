@@ -21,6 +21,25 @@ const openrouterClient = new OpenAI({
     },
 });
 
+const localClient = new OpenAI({
+    baseURL: env.LOCAL_PROVIDER_BASE_URL || "http://localhost:11434/v1",
+    apiKey: env.LOCAL_PROVIDER_API_KEY || "ollama",
+});
+
+function isLocalModel(model: string): boolean {
+    return model.startsWith("ollama/") || model.startsWith("local/");
+}
+
+function cleanLocalModelName(model: string): string {
+    if (model.startsWith("ollama/")) {
+        return model.slice("ollama/".length);
+    }
+    if (model.startsWith("local/")) {
+        return model.slice("local/".length);
+    }
+    return model;
+}
+
 // Dimensions are env-configurable so switching models doesn't require a code change.
 // LanceDB table schema is fixed at creation time — switching models requires
 // dropping the table and running a full reindex (POST /rag/reindex).
@@ -41,9 +60,13 @@ export async function embed(text: string): Promise<number[]> {
 export async function embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
+    const isLocal = isLocalModel(EMBEDDING_CLOUD);
+    const client = isLocal ? localClient : openrouterClient;
+    const model = isLocal ? cleanLocalModelName(EMBEDDING_CLOUD) : EMBEDDING_CLOUD;
+
     // True batch: the OpenAI-compatible API accepts string[] as input
-    const response = await openrouterClient.embeddings.create({
-        model: EMBEDDING_CLOUD,
+    const response = await client.embeddings.create({
+        model: model,
         input: texts,
     });
 
