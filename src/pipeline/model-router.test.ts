@@ -8,6 +8,12 @@ async function* mockStream(chunks: any[]) {
 
 export const mockOpenRouterSend = mock((params: any) => {
     if (params?.chatGenerationParams?.stream) {
+        if (params.chatGenerationParams.model === "openai/gpt-4o-reasoning") {
+            return Promise.resolve(mockStream([
+                { choices: [{ delta: { reasoning: "cloud-thinking..." } }] },
+                { choices: [{ delta: { content: "cloud-answer" } }], usage: { promptTokens: 10, completionTokens: 20 } }
+            ]));
+        }
         return Promise.resolve(mockStream([
             { choices: [{ delta: { content: "cloud-" } }] },
             { choices: [{ delta: { content: "stream" } }], usage: { promptTokens: 10, completionTokens: 20 } }
@@ -29,6 +35,12 @@ export const mockOpenRouterSend = mock((params: any) => {
 
 export const mockLocalCreate = mock((params: any) => {
     if (params?.stream) {
+        if (params.model === "reasoner") {
+            return Promise.resolve(mockStream([
+                { choices: [{ delta: { reasoning_content: "local-thinking..." } }] },
+                { choices: [{ delta: { content: "local-answer" } }], usage: { prompt_tokens: 5, completion_tokens: 15 } }
+            ]));
+        }
         return Promise.resolve(mockStream([
             { choices: [{ delta: { content: "local-" } }] },
             { choices: [{ delta: { content: "stream" } }], usage: { prompt_tokens: 5, completion_tokens: 15 } }
@@ -118,6 +130,7 @@ mock.module("../env.ts", () => ({
 
 import { describe, expect, it } from "bun:test";
 import type { TaskType } from "./model-router.ts";
+import { env } from "../env.ts";
 
 let getModelChain: any;
 let callWithFallback: any;
@@ -327,5 +340,105 @@ describe("callModelStream", () => {
 
         const calledArgs = mockOpenRouterSend.mock.calls[0][0];
         expect(calledArgs.chatGenerationParams.model).toBe("openai/gpt-4o");
+    });
+
+    it("maps json_schema responseFormat correctly for localClient in callWithFallback", async () => {
+        mockLocalCreate.mockClear();
+
+        await callWithFallback("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "local/llama3",
+            responseFormat: {
+                type: "json_schema",
+                jsonSchema: {
+                    name: "test_schema",
+                    schema: { type: "object", properties: { key: { type: "string" } } },
+                    strict: true
+                }
+            }
+        });
+
+        expect(mockLocalCreate).toHaveBeenCalled();
+        const calledArgs = mockLocalCreate.mock.calls[0][0];
+        expect(calledArgs.response_format).toEqual({
+            type: "json_schema",
+            json_schema: {
+                name: "test_schema",
+                schema: { type: "object", properties: { key: { type: "string" } } },
+                strict: true
+            }
+        });
+    });
+
+    it("yields reasoning tokens correctly in callModelStream for local models", async () => {
+        mockLocalCreate.mockClear();
+
+        const stream = callModelStream("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "local/reasoner"
+        });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(chunk);
+        }
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0]).toEqual({ type: "reasoning", content: "local-thinking..." });
+        expect(chunks[1]).toEqual({ type: "token", content: "local-answer" });
+        expect(chunks[2].type).toBe("done");
+        expect(chunks[2].raw).toBe("local-answer");
+    });
+
+    it("yields reasoning tokens correctly in callModelStream for cloud models", async () => {
+        mockOpenRouterSend.mockClear();
+
+        const stream = callModelStream("brain-dump", [{ role: "user", content: "hello" }], {
+            modelOverride: "openai/gpt-4o-reasoning"
+        });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(chunk);
+        }
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0]).toEqual({ type: "reasoning", content: "cloud-thinking..." });
+        expect(chunks[1]).toEqual({ type: "token", content: "cloud-answer" });
+        expect(chunks[2].type).toBe("done");
+        expect(chunks[2].raw).toBe("cloud-answer");
+    });
+
+    it("throws an error when callWithFallback has no models configured", async () => {
+        const originalModel = env.BRAIN_DUMP_MODEL;
+        (env as any).BRAIN_DUMP_MODEL = "";
+        
+        try {
+            let didThrow = false;
+            try {
+                await callWithFallback("brain-dump", [{ role: "user", content: "hello" }]);
+            } catch (e) {
+                didThrow = true;
+            }
+            expect(didThrow).toBe(true);
+        } finally {
+            (env as any).BRAIN_DUMP_MODEL = originalModel;
+        }
+    });
+
+    it("yields an error when callModelStream has no models configured", async () => {
+        const originalModel = env.BRAIN_DUMP_MODEL;
+        (env as any).BRAIN_DUMP_MODEL = "";
+        
+        try {
+            const stream = callModelStream("brain-dump", [{ role: "user", content: "hello" }]);
+            const chunks = [];
+            for await (const chunk of stream) {
+                chunks.push(chunk);
+            }
+            expect(chunks).toHaveLength(1);
+            expect(chunks[0].type).toBe("error");
+            expect(chunks[0].code).toBe("NO_MODEL");
+        } finally {
+            (env as any).BRAIN_DUMP_MODEL = originalModel;
+        }
     });
 });

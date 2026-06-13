@@ -2,6 +2,7 @@
  * Embedder unit tests.
  */
 import { describe, expect, it, mock, beforeAll } from "bun:test";
+import { env } from "../env.ts";
 
 export let constructorCalls: any[] = [];
 export const mockEmbeddingsCreate = mock((params: any) => {
@@ -106,5 +107,34 @@ describe("local embeddings routing", () => {
 
         const calledArgs = mockEmbeddingsCreate.mock.calls[0][0];
         expect(calledArgs.model).toBe("nomic-embed-text");
+    });
+
+    it("routes unprefixed models to cloud/OpenRouter client", async () => {
+        mockEmbeddingsCreate.mockClear();
+        
+        const originalModel = env.EMBEDDING_CLOUD;
+        (env as any).EMBEDDING_CLOUD = "google/gemini-embedding-001";
+        
+        try {
+            const result = await embedBatch(["hello cloud"]);
+            expect(result).toHaveLength(1);
+            expect(mockEmbeddingsCreate).toHaveBeenCalled();
+            
+            const calledArgs = mockEmbeddingsCreate.mock.calls[0][0];
+            expect(calledArgs.model).toBe("google/gemini-embedding-001");
+        } finally {
+            (env as any).EMBEDDING_CLOUD = originalModel;
+        }
+    });
+
+    it("embed wrapper function correctly wraps embedBatch", async () => {
+        mockEmbeddingsCreate.mockClear();
+        
+        const result = await embed("hello single");
+        expect(result).toHaveLength(4096);
+        expect(mockEmbeddingsCreate).toHaveBeenCalled();
+        
+        const calledArgs = mockEmbeddingsCreate.mock.calls[0][0];
+        expect(calledArgs.input).toEqual(["hello single"]);
     });
 });

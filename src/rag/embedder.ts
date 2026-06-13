@@ -60,9 +60,10 @@ export async function embed(text: string): Promise<number[]> {
 export async function embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
-    const isLocal = isLocalModel(EMBEDDING_CLOUD);
+    const modelConfig = env.EMBEDDING_CLOUD;
+    const isLocal = isLocalModel(modelConfig);
     const client = isLocal ? localClient : openrouterClient;
-    const model = isLocal ? cleanLocalModelName(EMBEDDING_CLOUD) : EMBEDDING_CLOUD;
+    const model = isLocal ? cleanLocalModelName(modelConfig) : modelConfig;
 
     // True batch: the OpenAI-compatible API accepts string[] as input
     const response = await client.embeddings.create({
