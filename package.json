@@ -31,7 +31,7 @@
     "elysia": "^1.4.28",
     "elysia-background": "^1.2.1",
     "elysia-ip": "^1.0.10",
-    "elysia-rate-limit": "^4.5.1",
+    "elysia-rate-limit": "^5.0.0",
     "elysia-xss": "^1.0.4",
     "elysiajs-helmet": "^1.0.4",
     "logixlysia": "^6.3.0",
