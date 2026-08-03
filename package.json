@@ -35,7 +35,7 @@
     "elysia-xss": "^1.0.4",
     "elysiajs-helmet": "^1.0.4",
     "logixlysia": "^6.3.0",
-    "openai": "^6.33.0",
+    "openai": "^7.2.0",
     "p-limit": "^7.3.0",
     "tiktoken": "^1.0.22",
     "web-push": "^3.6.7",
